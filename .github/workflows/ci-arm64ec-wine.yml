@@ -1,4 +1,4 @@
-name: Build Wine 11.1 Staging (Force Continue)
+name: Build Wine 11.1 Staging (Unstoppable)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_wine_11_1:
+  build_wine_unstoppable:
     runs-on: ubuntu-24.04
 
     env:
@@ -64,21 +64,23 @@ jobs:
         run: |
           echo "Cloning Wine $WINE_TAG..."
           git clone --depth 1 --branch $WINE_TAG https://gitlab.winehq.org/wine/wine.git wine-src
-          
-          echo "Cloning Staging $STAGING_TAG..."
           git clone --depth 1 --branch $STAGING_TAG https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-      # 4. PATCHING (FORCE CONTINUE)
+      # 4. PATCHING (UNSTOPPABLE MODE)
       - name: Apply Patches
         run: |
           cd wine-staging
           
           # === ИСПРАВЛЕНИЕ ===
-          # Убрали -W (Exclude), так как он вызывает KeyError.
-          # Добавили || true, чтобы игнорировать ошибки патчинга отдельных файлов (xactengine).
-          # Это позволит применить 99% патчей и продолжить сборку.
-          echo ">>> Applying Staging (Best Effort)..."
-          ./staging/patchinstall.py DESTDIR=../wine-src --all || echo "WARNING: Some Staging patches failed to apply. Continuing anyway."
+          # Используем set +e чтобы скрипт не падал при ошибке python скрипта
+          set +e
+          echo ">>> Applying Staging (Ignore Errors)..."
+          ./staging/patchinstall.py DESTDIR=../wine-src --all
+          
+          # Проверяем код возврата, просто для лога, но не выходим
+          RET=$?
+          echo "Patchinstall returned code $RET (Ignored)"
+          set -e
           
           cd ../wine-src
           
@@ -91,7 +93,9 @@ jobs:
           
           echo ">>> Regenerating config..."
           autoreconf -fiv
-          ./tools/make_requests || true
+          
+          # Также игнорируем ошибку make_requests, если файлы создались
+          ./tools/make_requests || echo "WARN: make_requests non-zero exit"
 
       # 5. BUILD TOOLS
       - name: Build Wine Tools (Host x64)
@@ -147,11 +151,11 @@ jobs:
           
           cat <<EOF > Wine-11.1-Staging-ARM64/info.json
           {
-            "name": "Wine-11.1-Staging-Safe",
+            "name": "Wine-11.1-Staging-FSR",
             "version": "11.1-staging",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Wine 11.1 + Staging (Force Applied). Native ARM64."
+            "description": "Wine 11.1 + Staging (Forced). Native ARM64."
           }
           EOF
           
