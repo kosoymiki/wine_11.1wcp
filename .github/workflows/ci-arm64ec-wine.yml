@@ -52,18 +52,15 @@ jobs:
       - name: Build Wine tools natively (x86_64)
         working-directory: wine-src
         run: |
-          # Создаём каталог wine-tools для host binaries
+          # Создаём каталог для wine-tools
           mkdir -p wine-tools
 
-          # Собираем инструменты для x86_64 (нужно для cross build)
-          make tools -j$(nproc)
+          # Собираем bootstrap для host binaries (winebuild, winegcc, wineserver и др.)
+          make bootstrap -j$(nproc)
 
-          # Копируем необходимые бинарники в wine-tools
-          cp -a winebuild wine-tools/
-          cp -a winegcc wine-tools/
-          cp -a wineserver wine-tools/
-          cp -a winefile wine-tools/
-          
+          # Копируем все инструменты в wine-tools
+          cp -a wine-tools-build/* wine-tools/
+
           # Проверяем содержимое
           ls -l wine-tools
 
