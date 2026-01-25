@@ -1,0 +1,115 @@
+name: CI Build Wine ARM64
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build_arm64:
+    name: Build Wine ARM64 + Package .wcp
+    runs-on: ubuntu-latest
+
+    services:
+      qemu-user:
+        image: multiarch/qemu-user-static:latest
+        options: --privileged
+
+    env:
+      WINE_VERSION: "wine-11.1"
+      PREFIX: "$HOME/wine_arm64"
+      WCP_OUT: "$HOME/wine_arm64_wcp"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Cache Wine source and build artifacts:
+      - name: Cache source and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/wine_source
+            ${{ github.workspace }}/wine_build_cache
+          key: ${{ runner.os }}-wine-arm64-${{ env.WINE_VERSION }}-${{ hashFiles('**/configure') }}
+          restore-keys: |
+            ${{ runner.os }}-wine-arm64-${{ env.WINE_VERSION }}-
+
+      - name: Setup dependencies
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt update && sudo apt install -y \
+            build-essential git clang lld llvm mingw-w64 \
+            libx11-dev:arm64 libfreetype6-dev:arm64 \
+            libxcb1-dev:arm64 libxext-dev:arm64 \
+            pkg-config
+
+      - name: Prepare Wine source
+        run: |
+          mkdir -p wine_source
+          git clone --depth 1 --branch "${WINE_VERSION}" \
+            https://gitlab.winehq.org/wine/wine.git wine_source
+
+      - name: Configure Wine ARM64
+        working-directory: wine_source
+        run: |
+          export CC=clang
+          export CXX=clang++
+          export LD=ld.lld
+          export AR=llvm-ar
+          export RANLIB=llvm-ranlib
+          export CFLAGS="-march=armv8-a -O3 -fno-plt"
+          export CXXFLAGS="$CFLAGS"
+          export LDFLAGS="-fuse-ld=lld"
+          ./configure \
+            --host=aarch64-linux-gnu \
+            --with-wine64 \
+            --disable-tests \
+            --enable-win64 \
+            --without-x \
+            --prefix="${PREFIX}"
+
+      - name: Build Wine ARM64
+        working-directory: wine_source
+        run: |
+          make -j$(nproc)
+
+      - name: Install Wine ARM64
+        working-directory: wine_source
+        run: |
+          make install DESTDIR="${PREFIX}"
+
+      - name: Setup Wine prefix
+        run: |
+          mkdir -p "${PREFIX}/.wine64"
+          # wineboot may fail under QEMU; ignore
+          "${PREFIX}/usr/bin/wine64" wineboot || true
+
+      - name: Create .wcp structure
+        run: |
+          mkdir -p "${WCP_OUT}/arch/arm64/bin"
+          mkdir -p "${WCP_OUT}/arch/arm64/lib"
+          mkdir -p "${WCP_OUT}/arch/arm64/etc"
+          cp -a "${PREFIX}/usr/bin" "${WCP_OUT}/arch/arm64/"
+          cp -a "${PREFIX}/usr/lib" "${WCP_OUT}/arch/arm64/"
+          cp -a "${PREFIX}/.wine64" "${WCP_OUT}/wineprefix"
+          cat > "${WCP_OUT}/manifest.json" <<EOF
+{
+  "name": "Wine11-ARM64",
+  "version": "${WINE_VERSION}",
+  "arch": "arm64",
+  "runtime": "winlator-ludashi"
+}
+EOF
+          echo "${WINE_VERSION}" > "${WCP_OUT}/version.txt"
+          echo '#!/bin/sh' > "${WCP_OUT}/arch/arm64/etc/env.sh"
+          echo 'export WINEDEBUG="-all"' >> "${WCP_OUT}/arch/arm64/etc/env.sh"
+          echo 'export WINEESYNC=1' >> "${WCP_OUT}/arch/arm64/etc/env.sh"
+          chmod +x "${WCP_OUT}/arch/arm64/etc/env.sh"
+
+      - name: Upload .wcp artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: wine-arm64-wcp
+          path: ${{ env.WCP_OUT }}
