@@ -1,4 +1,4 @@
-name: Build Wine 11 ARM64 (Tools Fix)
+name: Build Wine 11 ARM64 (Stable O2)
 
 on:
   push:
@@ -60,17 +60,14 @@ jobs:
       - name: Clone Wine Source
         run: git clone --depth 1 https://gitlab.winehq.org/wine/wine.git wine-src
 
-      # 3. Сборка инструментов (Host x64) — ИСПРАВЛЕНО
+      # 3. Сборка инструментов (Host x64)
       - name: Build Wine Tools (Host x64)
         run: |
           mkdir wine-tools
           cd wine-tools
-          # Конфигурация для хоста
           ../wine-src/configure --enable-win64 --without-x --without-freetype --without-wayland --without-vulkan
           
-          # === ИСПРАВЛЕНИЕ ===
-          # Убрали loader/wine64.
-          # Оставили только то, что реально нужно для кросс-сборки.
+          # Собираем необходимый набор
           make -j$(nproc) \
             tools/winebuild/winebuild \
             tools/widl/widl \
@@ -85,8 +82,11 @@ jobs:
           mkdir wine-build
           cd wine-build
           
-          export CFLAGS="-O3 -mcpu=cortex-x2 -mtune=cortex-x2 -fno-plt"
-          export CROSSCFLAGS="-O3 -mcpu=cortex-x2 -mtune=cortex-x2 -g0 -mstrict-align -Wno-error"
+          # === ИСПРАВЛЕНИЕ ЗДЕСЬ ===
+          # Понижаем оптимизацию до -O2 и используем generic armv8.2-a
+          # Это предотвращает краш компилятора Clang (Error 70)
+          export CFLAGS="-O2 -march=armv8.2-a+fp16+dotprod -fno-plt"
+          export CROSSCFLAGS="-O2 -march=armv8.2-a+fp16+dotprod -g0 -mstrict-align -Wno-error"
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
           
           ../wine-src/configure \
@@ -124,11 +124,11 @@ jobs:
           
           cat <<EOF > Wine-11.0-ARM64/info.json
           {
-            "name": "Wine-11.0-ARM64-Final",
+            "name": "Wine-11.0-ARM64-Stable",
             "version": "11.0-git",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Native AArch64 (X11). Cortex-X2 Optimized."
+            "description": "Native AArch64 (X11). O2 Optimized."
           }
           EOF
           
