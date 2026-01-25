@@ -1,4 +1,4 @@
-name: Build ARM64EC Wine and Package .wcp
+name: Build ARM64EC Wine and Package .wcp file
 
 on:
   push:
