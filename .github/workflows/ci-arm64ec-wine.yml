@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup QEMU user emulation
@@ -22,8 +22,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential clang llvm lld pkgconf git \
+          sudo apt-get install -y curl jq build-essential clang llvm lld pkgconf git \
             autoconf automake libtool flex bison gettext unzip \
             libsdl2-dev libvulkan-dev libx11-dev libxext-dev \
             libxrandr-dev libxrender-dev libxcursor-dev libxi-dev \
@@ -31,18 +30,15 @@ jobs:
             libudev-dev libasound2-dev libcapi20-dev libusb-1.0-0-dev \
             libgnutls28-dev libpulse-dev libsqlite3-dev libosmesa6-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            libunwind-dev curl jq
+            libunwind-dev
 
       - name: Download latest llvm-mingw cross-toolchain
         run: |
-          # Get latest tag from GitHub API
           TAG=$(curl -s https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest | jq -r .tag_name)
           CRTPKG="ucrt"
           DISTRO="ubuntu-22.04-x86_64"
-
           wget https://github.com/mstorsjo/llvm-mingw/releases/download/${TAG}/llvm-mingw-${TAG}-${CRTPKG}-${DISTRO}.tar.xz
           tar xf llvm-mingw-${TAG}-${CRTPKG}-${DISTRO}.tar.xz
-
           sudo mv llvm-mingw-${TAG}-${CRTPKG}-${DISTRO} /opt/llvm-mingw
           echo "/opt/llvm-mingw/bin" >> $GITHUB_PATH
 
@@ -61,10 +57,11 @@ jobs:
           export LD=aarch64-w64-mingw32-llvm-ld
           export RANLIB=aarch64-w64-mingw32-llvm-ranlib
           export STRIP=aarch64-w64-mingw32-llvm-strip
-          export CPP=aarch64-w64-mingw32-clang -E
 
-          # IMPORTANT: enable FP explicitly for AArch64
-          export CFLAGS="-O2 -march=armv8-a+fp+simd"
+          export CPP="aarch64-w64-mingw32-clang -E"
+
+          # Force hardware floating-point explicitly for AArch64
+          export CFLAGS="-O2 -march=armv8-a+fp+simd -fno-plt"
           export CXXFLAGS="$CFLAGS"
           export LDFLAGS="-fuse-ld=lld"
 
@@ -73,8 +70,8 @@ jobs:
             --host=aarch64-w64-mingw32 \
             --enable-archs=arm64ec \
             --with-mingw=clang \
-            --without-x \
             --disable-tests \
+            --without-x \
             --prefix=/usr
 
       - name: Build Wine
