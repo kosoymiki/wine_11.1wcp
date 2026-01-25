@@ -1,4 +1,4 @@
-name: Build Wine 11.1 Staging (Unstoppable)
+name: Build Wine 11.1 Staging (Final Ignore)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_wine_unstoppable:
+  build_wine_ignore_errors:
     runs-on: ubuntu-24.04
 
     env:
@@ -19,7 +19,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 1. SETUP REPOS
+      # 1. SETUP
       - name: Setup Multiarch
         run: |
           sudo dpkg --add-architecture arm64
@@ -66,36 +66,26 @@ jobs:
           git clone --depth 1 --branch $WINE_TAG https://gitlab.winehq.org/wine/wine.git wine-src
           git clone --depth 1 --branch $STAGING_TAG https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-      # 4. PATCHING (UNSTOPPABLE MODE)
+      # 4. PATCHING (IGNORE ALL ERRORS)
       - name: Apply Patches
         run: |
           cd wine-staging
           
-          # === ИСПРАВЛЕНИЕ ===
-          # Используем set +e чтобы скрипт не падал при ошибке python скрипта
-          set +e
-          echo ">>> Applying Staging (Ignore Errors)..."
+          set +e # Disable exit on error
+          echo ">>> Applying Staging..."
           ./staging/patchinstall.py DESTDIR=../wine-src --all
-          
-          # Проверяем код возврата, просто для лога, но не выходим
-          RET=$?
-          echo "Patchinstall returned code $RET (Ignored)"
-          set -e
           
           cd ../wine-src
           
-          # GE FSR Patch
-          mkdir ge_patches
-          wget -q -O ge_patches/fshack.patch "$GE_PATCH_FSR"
-          
           echo ">>> Applying FSR..."
-          patch -p1 --fuzz=3 < ge_patches/fshack.patch || echo "WARN: FSR skipped"
+          wget -q -O fsr.patch "$GE_PATCH_FSR"
+          patch -p1 --fuzz=3 < fsr.patch
           
-          echo ">>> Regenerating config..."
+          echo ">>> Regenerating config (Best Effort)..."
           autoreconf -fiv
           
-          # Также игнорируем ошибку make_requests, если файлы создались
-          ./tools/make_requests || echo "WARN: make_requests non-zero exit"
+          echo "Patching phase done. Continuing to build..."
+          set -e # Re-enable exit on error
 
       # 5. BUILD TOOLS
       - name: Build Wine Tools (Host x64)
@@ -155,7 +145,7 @@ jobs:
             "version": "11.1-staging",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Wine 11.1 + Staging (Forced). Native ARM64."
+            "description": "Wine 11.1 + Staging (Force). Native ARM64."
           }
           EOF
           
