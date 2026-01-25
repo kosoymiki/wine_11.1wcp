@@ -31,37 +31,38 @@ jobs:
             libfontconfig-dev libdbus-1-dev libudev-dev libasound2-dev \
             libcapi20-dev libusb-1.0-0-dev libgnutls28-dev libpulse-dev \
             libsqlite3-dev libosmesa6-dev libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev libunwind-dev
+            libgstreamer-plugins-base1.0-dev libunwind-dev unzip
 
-      - name: Install llvm-mingw cross toolchain
+      - name: Install LLVM-MinGW toolchain
         run: |
-          # Скачиваем релизный LLVM-MinGW архив для x86_64 (Linux хост)
-          wget https://github.com/mstorsjo/llvm-mingw/releases/download/20251118/llvm-mingw-20251118-ucrt-x86_64.zip
-          unzip llvm-mingw-20251118-ucrt-x86_64.zip
-
-          # Находим и перемещаем распакованную директорию
+          wget https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-x86_64.zip
+          unzip llvm-mingw-20251216-ucrt-x86_64.zip
           TOOLCHAIN_DIR=$(find . -maxdepth 1 -type d -name "llvm-mingw-*-ucrt-x86_64*" | head -n1)
           sudo mv "$TOOLCHAIN_DIR" /opt/llvm-mingw
-
-          # Добавляем в PATH
           echo "/opt/llvm-mingw/bin" >> $GITHUB_PATH
 
-      - run: |
-          git clone --depth 1 --branch "wine-11.1" \
-            https://gitlab.winehq.org/wine/wine.git wine-src
+      - name: Clone Wine source
+        run: |
+          git clone --depth 1 --branch "wine-11.1" https://gitlab.winehq.org/wine/wine.git wine-src
 
       - name: Configure Wine build
         working-directory: wine-src
         run: |
-          export CC=aarch64-w64-mingw32-clang
-          export CXX=aarch64-w64-mingw32-clang++
+          # Указываем clang с явным таргетом и sysroot на LLVM-MinGW
+          export CC="clang --target=aarch64-w64-mingw32 --sysroot=/opt/llvm-mingw/aarch64-w64-mingw32"
+          export CXX="clang++ --target=aarch64-w64-mingw32 --sysroot=/opt/llvm-mingw/aarch64-w64-mingw32"
           export AR=llvm-ar
           export LD=lld
           export RANLIB=llvm-ranlib
           export STRIP=llvm-strip
+
           export CFLAGS="-march=armv8.2-a+fp16+dotprod -O3 -fno-plt"
           export CXXFLAGS="$CFLAGS"
           export LDFLAGS="-fuse-ld=lld"
+
+          # Добавляем Mingw-инклуды и либы в путь компилятора
+          export CFLAGS="$CFLAGS -I/opt/llvm-mingw/aarch64-w64-mingw32/include"
+          export LDFLAGS="$LDFLAGS -L/opt/llvm-mingw/aarch64-w64-mingw32/lib"
 
           ./configure \
             --enable-archs=arm64ec,aarch64 \
