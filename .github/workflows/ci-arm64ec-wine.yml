@@ -19,21 +19,6 @@ jobs:
         with:
           platforms: aarch64
 
-      - name: Download and extract MSYS2 ARM64EC sysroot
-        run: |
-          # Скачиваем MSYS2 для ARM64EC
-          wget https://example.com/path/to/msys2-arm64ec.tar.xz -O /tmp/msys2-arm64ec.tar.xz
-          mkdir -p /opt/msys2-arm64ec
-          tar -xf /tmp/msys2-arm64ec.tar.xz -C /opt/msys2-arm64ec
-
-      - name: Set environment variables for sysroot and pkg-config
-        run: |
-          # Устанавливаем переменные для pkg-config и CFLAGS/LDFLAGS
-          export PKG_CONFIG_PATH=/opt/msys2-arm64ec/lib/pkgconfig
-          export PKG_CONFIG_LIBDIR=$PKG_CONFIG_PATH
-          export CFLAGS+=" --sysroot=/opt/msys2-arm64ec"
-          export LDFLAGS+=" --sysroot=/opt/msys2-arm64ec"
-
       - name: Install dependencies for Wine build
         run: |
           sudo apt-get update
@@ -52,7 +37,30 @@ jobs:
             libxext-dev \
             libxrender-dev \
             libxml2-dev \
-            libssl-dev
+            libssl-dev \
+            gcc-multilib \
+            g++-multilib
+
+      - name: Download LLVM MinGW toolchain for ARM64EC
+        run: |
+          # Скачиваем и распаковываем LLVM MinGW для ARM64EC
+          wget https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-x86_64.tar.xz -O /tmp/llvm-mingw.tar.xz
+          mkdir -p /opt/llvm-mingw
+          tar -xf /tmp/llvm-mingw.tar.xz -C /opt/llvm-mingw
+
+      - name: Set environment variables for sysroot and toolchain
+        run: |
+          # Устанавливаем переменные для использования LLVM MinGW toolchain
+          export PATH="/opt/llvm-mingw/bin:$PATH"
+          export CC=aarch64-w64-mingw32-clang
+          export CXX=aarch64-w64-mingw32-clang++
+          export AR=aarch64-w64-mingw32-ar
+          export LD=aarch64-w64-mingw32-llvm-ld
+          export RANLIB=aarch64-w64-mingw32-ranlib
+          export PKG_CONFIG_PATH=/opt/llvm-mingw/aarch64-w64-mingw32/lib/pkgconfig
+          export PKG_CONFIG_LIBDIR=$PKG_CONFIG_PATH
+          export CFLAGS+=" --sysroot=/opt/llvm-mingw/aarch64-w64-mingw32"
+          export LDFLAGS+=" --sysroot=/opt/llvm-mingw/aarch64-w64-mingw32"
 
       - name: Clone Wine repository
         run: |
@@ -62,13 +70,7 @@ jobs:
       - name: Configure Wine build
         working-directory: wine-src
         run: |
-          export CC=aarch64-w64-mingw32-clang
-          export CXX=aarch64-w64-mingw32-clang++
-          export AR=aarch64-w64-mingw32-ar
-          export LD=aarch64-w64-mingw32-llvm-ld
-          export RANLIB=aarch64-w64-mingw32-ranlib
-
-          # Настройка флагов
+          # Настройка флагов и компилятора
           ./configure \
             --enable-archs=arm64ec,aarch64 \
             --host=arm64ec-w64-mingw32 \
@@ -115,16 +117,4 @@ jobs:
 
           echo "wine-11.1" > wine-arm64ec-wcp/version.txt
 
-          cat << 'EOF' > wine-arm64ec-wcp/arch/arm64ec/etc/env.sh
-          #!/bin/sh
-          export WINEDEBUG="-all"
-          export WINE_ENABLE_ARM64EC=1
-          EOF
-
-          chmod +x wine-arm64ec-wcp/arch/arm64ec/etc/env.sh
-
-      - name: Upload .wcp artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wine-arm64ec-wcp
-          path: wine-arm64ec-wcp
+          cat << 'EOF' > wine-arm64ec-wcp/arch/arm64
