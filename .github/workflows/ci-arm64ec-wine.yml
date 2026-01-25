@@ -20,7 +20,8 @@ jobs:
         run: |
           sudo dpkg --add-architecture arm64
 
-          # Используем порты Ubuntu для ARM64
+          # Переключаем репозитории ARM64 на порты Ubuntu
+          sudo cp /etc/apt/sources.list /etc/apt/sources.list.bak
           sudo sed -i 's|http://archive.ubuntu.com/ubuntu/|http://ports.ubuntu.com/ubuntu-ports/|g' /etc/apt/sources.list
           sudo sed -i 's|http://security.ubuntu.com/ubuntu|http://ports.ubuntu.com/ubuntu-ports|g' /etc/apt/sources.list
 
@@ -57,7 +58,6 @@ jobs:
           mkdir wine-build
           cd wine-build
           
-          # Настройка компиляторов для ARM64EC
           export CC="clang --target=aarch64-w64-mingw32 --sysroot=$PWD/../llvm-mingw"
           export CXX="clang++ --target=aarch64-w64-mingw32 --sysroot=$PWD/../llvm-mingw"
           export AR=aarch64-w64-mingw32-ar
@@ -92,7 +92,6 @@ jobs:
           mkdir -p image/opt
           mv image/opt/wine-arm64ec Wine-11.1-ARM64EC
 
-          # Manifest
           cat <<EOF > Wine-11.1-ARM64EC/info.json
           {
             "name": "Wine-11.1-ARM64EC",
@@ -103,7 +102,6 @@ jobs:
           }
           EOF
 
-          # Environment wrapper
           cat <<'EOF' > Wine-11.1-ARM64EC/env.sh
           #!/bin/sh
           export WINEDEBUG="-all"
@@ -111,7 +109,6 @@ jobs:
           EOF
           chmod +x Wine-11.1-ARM64EC/env.sh
 
-          # Pack into .wcp
           tar -cJf ../../wine-arm64ec.wcp Wine-11.1-ARM64EC
 
       - name: Upload Artifact
