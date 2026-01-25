@@ -1,4 +1,4 @@
-name: Build Wine 11 ARM64 (Final Fix)
+name: Build Wine 11 ARM64 (Victory Build)
 
 on:
   push:
@@ -60,7 +60,7 @@ jobs:
       - name: Clone Wine Source
         run: git clone --depth 1 https://gitlab.winehq.org/wine/wine.git wine-src
 
-      # 3. Сборка инструментов (Host x64) — ИСПРАВЛЕНО
+      # 3. Сборка инструментов (Host x64) — FORCE BUILD
       - name: Build Wine Tools (Host x64)
         run: |
           mkdir wine-tools
@@ -68,10 +68,15 @@ jobs:
           # Конфигурация для хоста
           ../wine-src/configure --enable-win64 --without-x --without-freetype --without-wayland --without-vulkan
           
-          # === ГЛАВНОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ===
-          # Мы явно собираем tools/wine/wine (эмулятор), так как он нужен для кросс-билда.
-          # А также остальные инструменты.
-          make -j$(nproc) tools/wine/wine tools
+          # === FORCE BUILD TOOLS ===
+          # Собираем конкретные бинарники, которые нужны кросс-компилятору.
+          # Больше никаких "make tools" и надежд на лучшее.
+          make -j$(nproc) \
+            tools/winebuild/winebuild \
+            tools/widl/widl \
+            tools/wrc/wrc \
+            tools/wmc/wmc \
+            tools/wine/wine
 
       # 4. Конфигурация Target (ARM64)
       - name: Configure Wine (Target ARM64)
@@ -118,11 +123,11 @@ jobs:
           
           cat <<EOF > Wine-11.0-ARM64/info.json
           {
-            "name": "Wine-11.0-ARM64-Final",
+            "name": "Wine-11.0-ARM64-Victory",
             "version": "11.0-git",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Native AArch64 (X11). Cortex-X2 Optimized. Includes Loader."
+            "description": "Native AArch64 (X11). Cortex-X2 Optimized."
           }
           EOF
           
