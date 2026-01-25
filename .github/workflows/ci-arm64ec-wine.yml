@@ -24,16 +24,13 @@ jobs:
 
       - name: Install Host Build Dependencies
         run: |
-          sudo dpkg --add-architecture arm64
           sudo apt-get update -y
           sudo apt-get install -y \
             curl wget git cmake make pkgconf \
             flex bison gettext \
             zlib1g-dev libfreetype6-dev libfontconfig1-dev \
             libx11-dev libxext-dev libxrender-dev libxml2-dev libssl-dev \
-            build-essential \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libc6-dev-arm64-cross libstdc++-arm64-cross
+            build-essential
 
       - name: Setup LLVM MinGW for ARM64EC
         if: steps.cache.outputs.cache-hit != 'true'
@@ -76,6 +73,7 @@ jobs:
           export CXXFLAGS="$CFLAGS"
           export LDFLAGS="-fuse-ld=lld"
 
+          # Кросс-конфигурация Wine ARM64EC
           ../wine-src/configure \
             --host=aarch64-w64-mingw32 \
             --with-wine64 \
@@ -90,7 +88,9 @@ jobs:
             --without-usb \
             --without-v4l2 \
             --without-gphoto2 \
-            --with-vulkan
+            --with-vulkan \
+            --with-freetype \
+            --with-fontconfig
 
       - name: Build Wine ARM64EC
         working-directory: wine-build
