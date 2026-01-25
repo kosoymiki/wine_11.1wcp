@@ -74,13 +74,13 @@ jobs:
           cp -a wine-src/artifact/usr/lib/* wine-arm64ec-wcp/arch/arm64ec/lib/
 
           cat << 'EOF' > wine-arm64ec-wcp/manifest.json
-{
-  "name": "Wine11-ARM64EC",
-  "version": "wine-11.1",
-  "arch": "arm64ec",
-  "runtime": "winlator-ludashi"
-}
-EOF
+          {
+          "name": "Wine11-ARM64EC",
+          "version": "wine-11.1",
+          "arch": "arm64ec",
+          "runtime": "winlator-ludashi"
+          }
+             EOF
 
           echo "wine-11.1" > wine-arm64ec-wcp/version.txt
 
@@ -91,6 +91,7 @@ export WINE_ENABLE_ARM64EC=1
 EOF
 
           chmod +x wine-arm64ec-wcp/arch/arm64ec/etc/env.sh
+
 
       - name: Upload .wcp artifact
         uses: actions/upload-artifact@v4
