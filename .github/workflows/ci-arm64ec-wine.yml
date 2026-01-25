@@ -1,4 +1,4 @@
-name: Build Wine 11 ARM64 (Fixed Repos)
+name: Build Wine 11 ARM64 (Clean Sources)
 
 on:
   push:
@@ -13,28 +13,38 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 1. ИСПРАВЛЕНИЕ РЕПОЗИТОРИЕВ И УСТАНОВКА ЗАВИСИМОСТЕЙ
-      # Мы разделяем источники: Azure (x86) и Ports (ARM64), чтобы избежать ошибки 404.
+      # 1. ЖЕСТКАЯ НАСТРОЙКА РЕПОЗИТОРИЕВ (FAIL-PROOF)
       - name: Setup Multiarch & Dependencies
         run: |
-          # Включаем поддержку архитектуры arm64
+          # Включаем ARM64
           sudo dpkg --add-architecture arm64
 
-          # ХАК: Модифицируем текущие источники, чтобы они искали ТОЛЬКО amd64 пакеты
-          # Это предотвращает попытки скачать arm64 пакеты с серверов Azure (где их нет)
-          sudo sed -i 's/^deb /deb [arch=amd64] /g' /etc/apt/sources.list
-          sudo sed -i 's/^deb /deb [arch=amd64] /g' /etc/apt/sources.list.d/*.list || true
+          # УДАЛЯЕМ ВСЕ сторонние репозитории (Microsoft, Docker и т.д.), они ломают apt update при смене архитектур
+          sudo rm -rf /etc/apt/sources.list.d/*
 
-          # Добавляем сервер ports.ubuntu.com специально для arm64 пакетов
+          # ПЕРЕЗАПИСЫВАЕМ sources.list с нуля. 
+          # Это гарантирует правильный формат без всяких sed-хаков.
+          
+          # 1. Формируем блок для AMD64 (текущая архитектура раннера)
+          # Используем стандартные зеркала Azure
+          echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble main restricted universe multiverse" | sudo tee /etc/apt/sources.list
+          echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+          echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+          echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+
+          # 2. Формируем блок для ARM64 (целевая архитектура)
+          # Используем ports.ubuntu.com
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-backports main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
 
-          # Теперь обновление пройдет успешно
+          # Выводим файл для проверки (в логи CI)
+          cat /etc/apt/sources.list
+
+          # Обновляем кэш и устанавливаем пакеты
           sudo apt-get update
           
-          # Устанавливаем инструменты сборки и ARM64 библиотеки
           sudo apt-get install -y \
             wget curl git cmake make flex bison jq \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
@@ -44,36 +54,25 @@ jobs:
             libvulkan-dev:arm64 libwayland-dev:arm64 libxkbcommon-dev:arm64 \
             libsdl2-dev:arm64 libudev-dev:arm64 libgstreamer1.0-dev:arm64
 
-      # 2. Динамическая загрузка ПОСЛЕДНЕГО LLVM-MinGW
+      # 2. Динамическая загрузка LLVM-MinGW
       - name: Fetch Latest LLVM MinGW
         run: |
           API_URL="https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest"
-          echo "Fetching latest release info from $API_URL..."
-          
-          # Ищем версию для ucrt-ubuntu-20.04-x86_64 (она совместима с GitHub Runners)
+          # Ищем версию для ucrt-ubuntu-20.04-x86_64
           DOWNLOAD_URL=$(curl -s $API_URL | jq -r '.assets[] | select(.name | contains("ucrt-ubuntu-20.04-x86_64")) | .browser_download_url')
           
-          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
-            echo "Error: Could not find suitable llvm-mingw asset!"
-            exit 1
-          fi
+          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then echo "Error: Asset not found"; exit 1; fi
           
-          echo "Downloading: $DOWNLOAD_URL"
           wget -q "$DOWNLOAD_URL" -O llvm-mingw.tar.xz
-          
-          echo "Extracting..."
           tar xf llvm-mingw.tar.xz
-          
           EXTRACTED_DIR=$(tar -tf llvm-mingw.tar.xz | head -1 | cut -f1 -d"/")
           mv "$EXTRACTED_DIR" llvm-mingw
-          
           echo "$PWD/llvm-mingw/bin" >> $GITHUB_PATH
 
-      - name: Clone Wine Source (Master Branch)
-        run: |
-          git clone --depth 1 https://gitlab.winehq.org/wine/wine.git wine-src
+      - name: Clone Wine Source
+        run: git clone --depth 1 https://gitlab.winehq.org/wine/wine.git wine-src
 
-      # 3. Сборка инструментов (Tools) на нативной архитектуре (x86_64)
+      # 3. Сборка инструментов (Host x64)
       - name: Build Wine Tools (Host x64)
         run: |
           mkdir wine-tools
@@ -81,17 +80,14 @@ jobs:
           ../wine-src/configure --enable-win64 --without-x --without-freetype
           make -j$(nproc) tools include/x11drv_idl.h include/waylanddrv_client_protocol.h
 
-      # 4. Конфигурация основной сборки (Target ARM64 Linux + PE)
+      # 4. Конфигурация Target (ARM64)
       - name: Configure Wine (Target ARM64)
         run: |
           mkdir wine-build
           cd wine-build
           
-          # Флаги оптимизации Cortex-X2 + защита от новых варнингов Clang (-Wno-error)
           export CFLAGS="-O3 -mcpu=cortex-x2 -mtune=cortex-x2 -fno-plt"
           export CROSSCFLAGS="-O3 -mcpu=cortex-x2 -mtune=cortex-x2 -g0 -mstrict-align -Wno-error"
-          
-          # Явно указываем pkg-config на ARM64 библиотеки (которые мы скачали с ports.ubuntu)
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
           
           ../wine-src/configure \
@@ -110,45 +106,42 @@ jobs:
             --without-sane \
             --without-oss
 
-      # 5. Компиляция ядра и DLL
+      # 5. Сборка
       - name: Build Wine
         working-directory: wine-build
         run: make -j$(nproc)
 
-      # 6. Установка (Staging)
+      # 6. Установка
       - name: Install to Image
         working-directory: wine-build
         run: make install DESTDIR=$PWD/../image
 
-      # 7. Упаковка .wcp для Winlator
+      # 7. Упаковка
       - name: Package .wcp
         run: |
           cd image/opt
           mv wine-custom Wine-11.0-ARM64
           
-          # Метаданные
           cat <<EOF > Wine-11.0-ARM64/info.json
           {
-            "name": "Wine-11.0-ARM64-LatestLLVM",
+            "name": "Wine-11.0-ARM64-CI",
             "version": "11.0-git",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Native AArch64. Latest LLVM-MinGW. Cortex-X2 Optimized."
+            "description": "Native AArch64. Cortex-X2 Optimized."
           }
           EOF
           
-          # Отключение дебага
           cat <<EOF > Wine-11.0-ARM64/env.sh
           #!/bin/sh
           export WINEDEBUG="-all"
           EOF
           chmod +x Wine-11.0-ARM64/env.sh
           
-          # Создание архива
-          tar -cJf ../../wine-11-arm64-llvm-latest.wcp Wine-11.0-ARM64
+          tar -cJf ../../wine-11-arm64.wcp Wine-11.0-ARM64
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wine-11-arm64-llvm-latest.wcp
-          path: wine-11-arm64-llvm-latest.wcp
+          name: wine-11-arm64.wcp
+          path: wine-11-arm64.wcp
