@@ -1,4 +1,4 @@
-name: Build Wine 11 ARM64 (Clean Sources)
+name: Build Wine 11 ARM64 (Stable)
 
 on:
   push:
@@ -9,44 +9,38 @@ jobs:
   build_wine_native_arm64:
     runs-on: ubuntu-24.04
 
+    # Явно задаем URL компилятора. Никаких API запросов.
+    env:
+      LLVM_MINGW_URL: https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-ubuntu-20.04-x86_64.tar.xz
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 1. ЖЕСТКАЯ НАСТРОЙКА РЕПОЗИТОРИЕВ (FAIL-PROOF)
+      # 1. НАСТРОЙКА РЕПОЗИТОРИЕВ (Nuclear Option)
+      # Гарантированно исправляет ошибку 404 и "Malformed entry"
       - name: Setup Multiarch & Dependencies
         run: |
-          # Включаем ARM64
           sudo dpkg --add-architecture arm64
-
-          # УДАЛЯЕМ ВСЕ сторонние репозитории (Microsoft, Docker и т.д.), они ломают apt update при смене архитектур
-          sudo rm -rf /etc/apt/sources.list.d/*
-
-          # ПЕРЕЗАПИСЫВАЕМ sources.list с нуля. 
-          # Это гарантирует правильный формат без всяких sed-хаков.
           
-          # 1. Формируем блок для AMD64 (текущая архитектура раннера)
-          # Используем стандартные зеркала Azure
+          # Удаляем мусорные конфиги, которые ломают apt update
+          sudo rm -rf /etc/apt/sources.list.d/*
+          
+          # Перезаписываем sources.list: Azure для x86, Ports для ARM64
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble main restricted universe multiverse" | sudo tee /etc/apt/sources.list
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
-
-          # 2. Формируем блок для ARM64 (целевая архитектура)
-          # Используем ports.ubuntu.com
+          
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-backports main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
-
-          # Выводим файл для проверки (в логи CI)
-          cat /etc/apt/sources.list
-
-          # Обновляем кэш и устанавливаем пакеты
+          
           sudo apt-get update
           
           sudo apt-get install -y \
-            wget curl git cmake make flex bison jq \
+            wget curl git cmake make flex bison \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             libx11-dev:arm64 libfreetype-dev:arm64 libglib2.0-dev:arm64 \
             libxrender-dev:arm64 libxext-dev:arm64 libxi-dev:arm64 \
@@ -54,17 +48,12 @@ jobs:
             libvulkan-dev:arm64 libwayland-dev:arm64 libxkbcommon-dev:arm64 \
             libsdl2-dev:arm64 libudev-dev:arm64 libgstreamer1.0-dev:arm64
 
-      # 2. Динамическая загрузка LLVM-MinGW
-      - name: Fetch Latest LLVM MinGW
+      # 2. Установка LLVM-MinGW (Стабильная версия)
+      - name: Setup LLVM MinGW
         run: |
-          API_URL="https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest"
-          # Ищем версию для ucrt-ubuntu-20.04-x86_64
-          DOWNLOAD_URL=$(curl -s $API_URL | jq -r '.assets[] | select(.name | contains("ucrt-ubuntu-20.04-x86_64")) | .browser_download_url')
-          
-          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then echo "Error: Asset not found"; exit 1; fi
-          
-          wget -q "$DOWNLOAD_URL" -O llvm-mingw.tar.xz
+          wget -q "$LLVM_MINGW_URL" -O llvm-mingw.tar.xz
           tar xf llvm-mingw.tar.xz
+          # Динамическое определение имени папки, чтобы не зависеть от версии в имени
           EXTRACTED_DIR=$(tar -tf llvm-mingw.tar.xz | head -1 | cut -f1 -d"/")
           mv "$EXTRACTED_DIR" llvm-mingw
           echo "$PWD/llvm-mingw/bin" >> $GITHUB_PATH
@@ -116,7 +105,7 @@ jobs:
         working-directory: wine-build
         run: make install DESTDIR=$PWD/../image
 
-      # 7. Упаковка
+      # 7. Упаковка .wcp
       - name: Package .wcp
         run: |
           cd image/opt
@@ -124,11 +113,11 @@ jobs:
           
           cat <<EOF > Wine-11.0-ARM64/info.json
           {
-            "name": "Wine-11.0-ARM64-CI",
+            "name": "Wine-11.0-ARM64-Stable",
             "version": "11.0-git",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Native AArch64. Cortex-X2 Optimized."
+            "description": "Native AArch64. Cortex-X2 Optimized. Built with LLVM-MinGW 20240619."
           }
           EOF
           
