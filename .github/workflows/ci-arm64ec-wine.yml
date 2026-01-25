@@ -16,11 +16,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Cache LLVM-MinGW
+      - name: Setup Caches
         uses: actions/cache@v3
         with:
-          path: llvm-mingw
-          key: llvm-mingw-20251118
+          path: |
+            llvm-mingw
+            wine-src
+          key: ${{ runner.os }}-wine11-${{ hashFiles('**/workflow.yml') }}
 
       - name: Install Host Build Dependencies
         run: |
@@ -30,7 +32,7 @@ jobs:
             flex bison gettext \
             zlib1g-dev libfreetype6-dev libfontconfig1-dev \
             libx11-dev libxext-dev libxrender-dev libxml2-dev libssl-dev \
-            build-essential
+            build-essential libglu1-mesa-dev
 
       - name: Setup LLVM MinGW for ARM64EC
         if: steps.cache.outputs.cache-hit != 'true'
@@ -38,28 +40,13 @@ jobs:
           wget "$LLVM_MINGW_URL" -O llvm-mingw.tar.xz
           tar xf llvm-mingw.tar.xz
           mv llvm-mingw-20251118-ucrt-ubuntu-22.04-x86_64 llvm-mingw
-        shell: bash
-      - name: Add LLVM-MinGW to PATH
-        run: echo "$PWD/llvm-mingw/bin" >> $GITHUB_PATH
+          echo "$PWD/llvm-mingw/bin" >> $GITHUB_PATH
 
       - name: Clone Wine 11 Source
+        if: steps.cache.outputs.cache-hit != 'true'
         run: git clone --depth 1 --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git wine-src
 
-      - name: Cache Wine Tools
-        uses: actions/cache@v3
-        with:
-          path: wine-tools-build/install
-          key: wine-tools-11.1
-
-      - name: Build Wine Tools (Host x86_64)
-        run: |
-          mkdir -p wine-tools-build
-          cd wine-tools-build
-          ../wine-src/configure --disable-tests --without-x --prefix=$PWD/install --disable-win32
-          make -j$(nproc) tools
-          echo "WINE_TOOLS=$PWD/install/bin" >> $GITHUB_ENV
-
-      - name: Configure Wine Cross‑Compile ARM64EC
+      - name: Configure Wine Cross-Compile ARM64EC
         run: |
           mkdir -p wine-build
           cd wine-build
@@ -73,30 +60,23 @@ jobs:
           export CXXFLAGS="$CFLAGS"
           export LDFLAGS="-fuse-ld=lld"
 
-          # Кросс-конфигурация Wine ARM64EC
+          # Собираем только 64-bit ARM64EC, без host 32-bit tools
           ../wine-src/configure \
             --host=aarch64-w64-mingw32 \
             --with-wine64 \
-            --disable-win32 \
-            --with-wine-tools=$WINE_TOOLS \
+            --without-wine-tools \
             --with-mingw=clang \
             --prefix=/opt/wine-arm64ec \
             --disable-tests \
             --enable-archs=arm64ec \
             --without-x \
-            --without-gnutls \
-            --without-usb \
-            --without-v4l2 \
-            --without-gphoto2 \
-            --with-vulkan \
-            --with-freetype \
-            --with-fontconfig
+            --with-vulkan
 
       - name: Build Wine ARM64EC
         working-directory: wine-build
         run: make -j$(nproc)
 
-      - name: Install Wine ARM64EC
+      - name: Install Wine ARM64EC Staging
         working-directory: wine-build
         run: make DESTDIR=$PWD/../image install
 
