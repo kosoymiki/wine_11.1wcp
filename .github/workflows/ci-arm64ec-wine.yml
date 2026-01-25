@@ -16,17 +16,39 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Host & Cross Dependencies
+      - name: Setup ARM64-Compatible Repositories and Dependencies
         run: |
-          sudo dpkg --add-architecture arm64
+          set -euo pipefail
+          echo "=== Настройка arm64 и репозиториев ==="
 
-          # Переключаем репозитории ARM64 на порты Ubuntu
-          sudo cp /etc/apt/sources.list /etc/apt/sources.list.bak
-          sudo sed -i 's|http://archive.ubuntu.com/ubuntu/|http://ports.ubuntu.com/ubuntu-ports/|g' /etc/apt/sources.list
-          sudo sed -i 's|http://security.ubuntu.com/ubuntu|http://ports.ubuntu.com/ubuntu-ports|g' /etc/apt/sources.list
+          # Основная архитектура
+          ARCH=$(dpkg --print-architecture)
+          echo "Основная архитектура: $ARCH"
 
-          sudo apt-get update
+          # Проверяем доступность портов Ubuntu для arm64
+          PORTS_URL="http://ports.ubuntu.com/ubuntu-ports"
+          DISTRO="noble"
+          COMPONENTS=("main" "universe" "multiverse" "restricted")
+          
+          echo "Смена стандартных репозиториев на порты Ubuntu"
+          sudo sed -i "s|http://archive.ubuntu.com/ubuntu/|$PORTS_URL/|g" /etc/apt/sources.list
+          sudo sed -i "s|http://security.ubuntu.com/ubuntu|$PORTS_URL|g" /etc/apt/sources.list
 
+          # Безопасно добавляем архитектуру arm64 только если пакеты есть
+          sudo dpkg --remove-architecture arm64 || true
+          for comp in "${COMPONENTS[@]}"; do
+            if curl -sfI "$PORTS_URL/dists/$DISTRO/$comp/binary-arm64/Packages" > /dev/null; then
+              echo "✔ arm64 доступен для $comp"
+              sudo dpkg --add-architecture arm64
+              break
+            else
+              echo "✖ arm64 недоступен для $comp"
+            fi
+          done
+
+          sudo apt-get update -y
+
+          echo "Установка зависимостей"
           sudo apt-get install -y \
             curl wget unzip pkgconf git cmake make \
             flex bison gettext \
@@ -57,7 +79,7 @@ jobs:
         run: |
           mkdir wine-build
           cd wine-build
-          
+
           export CC="clang --target=aarch64-w64-mingw32 --sysroot=$PWD/../llvm-mingw"
           export CXX="clang++ --target=aarch64-w64-mingw32 --sysroot=$PWD/../llvm-mingw"
           export AR=aarch64-w64-mingw32-ar
