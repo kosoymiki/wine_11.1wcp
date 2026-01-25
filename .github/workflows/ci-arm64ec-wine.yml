@@ -1,4 +1,4 @@
-name: Build Wine 11 ARM64 (Wayland Force)
+name: Build Wine 11 ARM64 (X11 Stable)
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
           sudo dpkg --add-architecture arm64
           sudo rm -rf /etc/apt/sources.list.d/*
           
-          # Перезапись sources.list (Azure x86 + Ports ARM64)
+          # Настраиваем репозитории
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble main restricted universe multiverse" | sudo tee /etc/apt/sources.list
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
@@ -35,19 +35,18 @@ jobs:
           
           sudo apt-get update
           
-          # Устанавливаем зависимости (Добавлен libxcomposite-dev)
+          # Устанавливаем ВСЕ библиотеки для X11 и Vulkan
           sudo apt-get install -y \
             wget curl git cmake make flex bison pkg-config \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            wayland-protocols libwayland-bin \
             libx11-dev:arm64 libfreetype-dev:arm64 libglib2.0-dev:arm64 \
             libxrender-dev:arm64 libxext-dev:arm64 libxi-dev:arm64 \
             libxrandr-dev:arm64 libxinerama-dev:arm64 libxcursor-dev:arm64 \
-            libvulkan-dev:arm64 libwayland-dev:arm64 libxkbcommon-dev:arm64 \
+            libxcomposite-dev:arm64 libxfixes-dev:arm64 libxxf86vm-dev:arm64 \
+            libvulkan-dev:arm64 libxkbcommon-dev:arm64 \
             libsdl2-dev:arm64 libudev-dev:arm64 libgstreamer1.0-dev:arm64 \
             libgnutls28-dev:arm64 libpcap-dev:arm64 libpulse-dev:arm64 \
-            libdbus-1-dev:arm64 libfontconfig1-dev:arm64 \
-            libxcomposite-dev:arm64
+            libdbus-1-dev:arm64 libfontconfig1-dev:arm64
 
       # 2. Установка LLVM-MinGW
       - name: Setup LLVM MinGW
@@ -69,7 +68,7 @@ jobs:
           ../wine-src/configure --enable-win64 --without-x --without-freetype --without-wayland --without-vulkan
           make -j$(nproc) tools
 
-      # 4. Конфигурация Target (ARM64) с FIX WAYLAND
+      # 4. Конфигурация Target (ARM64) - X11 ONLY
       - name: Configure Wine (Target ARM64)
         run: |
           mkdir wine-build
@@ -77,21 +76,9 @@ jobs:
           
           export CFLAGS="-O3 -mcpu=cortex-x2 -mtune=cortex-x2 -fno-plt"
           export CROSSCFLAGS="-O3 -mcpu=cortex-x2 -mtune=cortex-x2 -g0 -mstrict-align -Wno-error"
-          
-          # pkg-config хак для библиотек
-          export PKG_CONFIG_LIBDIR="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
-          export PKG_CONFIG_SYSROOT_DIR="/"
-          
-          # === FORCE VARIABLES ===
-          # Мы передаем эти переменные ПРЯМО В КОМАНДНУЮ СТРОКУ configure.
-          # Это переопределяет любые попытки автодетекта.
-          export WAYLAND_SCANNER=$(which wayland-scanner)
-          export WAYLAND_PROTOCOLS_DATADIR=/usr/share/wayland-protocols
-          
-          echo "Forcing WAYLAND_PROTOCOLS_DATADIR to $WAYLAND_PROTOCOLS_DATADIR"
+          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
           
           ../wine-src/configure \
-            WAYLAND_PROTOCOLS_DATADIR=$WAYLAND_PROTOCOLS_DATADIR \
             --host=aarch64-linux-gnu \
             --enable-win64 \
             --without-wine \
@@ -100,7 +87,7 @@ jobs:
             --prefix=/opt/wine-custom \
             --disable-tests \
             --with-x \
-            --with-wayland \
+            --without-wayland \
             --with-vulkan \
             --with-freetype \
             --without-gstreamer \
@@ -126,11 +113,11 @@ jobs:
           
           cat <<EOF > Wine-11.0-ARM64/info.json
           {
-            "name": "Wine-11.0-ARM64-Wayland",
+            "name": "Wine-11.0-ARM64-X11",
             "version": "11.0-git",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Native AArch64. Wayland & XComposite Supported."
+            "description": "Native AArch64 (X11 Backend). Cortex-X2 Optimized. Best for Winlator."
           }
           EOF
           
