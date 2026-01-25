@@ -1,4 +1,4 @@
-name: Build Wine 11 Staging Sync (Fix Patching)
+name: Build Wine 11.1 Staging (Corrected)
 
 on:
   push:
@@ -6,27 +6,27 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_wine_synced:
+  build_wine_11_1:
     runs-on: ubuntu-24.04
 
     env:
       LLVM_MINGW_URL: "https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz"
-      # Ссылки на GE патчи
+      WINE_TAG: "wine-11.1"
+      STAGING_TAG: "v11.1"
+      # Патч FSR для современной ветки (берем от master, так как структура 11.x близка к master)
       GE_PATCH_FSR: "https://raw.githubusercontent.com/GloriousEggroll/proton-ge-custom/master/patches/wine-hotfixes/staging/proton-fshack-staging.patch"
-      GE_PATCH_AGS: "https://raw.githubusercontent.com/GloriousEggroll/proton-ge-custom/master/patches/wine-hotfixes/staging/proton-amd_ags.patch"
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 1. CLEAN SETUP
-      - name: Setup Multiarch & Dependencies
+      # 1. SETUP REPOS
+      - name: Setup Multiarch
         run: |
           sudo dpkg --add-architecture arm64
           sudo rm -f /etc/apt/sources.list
           sudo rm -rf /etc/apt/sources.list.d/*
           
-          # Repos
           echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse" | sudo tee /etc/apt/sources.list
           echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=amd64] http://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
@@ -37,7 +37,6 @@ jobs:
           
           sudo apt-get update
           
-          # ВАЖНО: Добавлен build-essential (GCC x64) для работы утилит патчинга
           sudo apt-get install -y \
             build-essential \
             wget curl git cmake make flex bison pkg-config python3-minimal autoconf \
@@ -52,7 +51,7 @@ jobs:
             libgnutls28-dev:arm64 libpcap-dev:arm64 libpulse-dev:arm64 \
             libdbus-1-dev:arm64 libfontconfig1-dev:arm64
 
-      # 2. SETUP LLVM-MINGW
+      # 2. SETUP COMPILER
       - name: Setup LLVM MinGW
         run: |
           wget -q "$LLVM_MINGW_URL" -O llvm-mingw.tar.xz
@@ -61,65 +60,48 @@ jobs:
           mv "$EXTRACTED_DIR" llvm-mingw
           echo "$PWD/llvm-mingw/bin" >> $GITHUB_PATH
 
-      # 3. CLONE & SYNC SOURCES (Fix for Exit Code 8)
-      - name: Clone & Sync Sources
+      # 3. CLONE EXACT TAGS
+      - name: Clone Sources
         run: |
-          echo ">>> Cloning Wine Staging..."
-          git clone --depth 1 https://github.com/wine-staging/wine-staging.git wine-staging
+          echo "Cloning Wine $WINE_TAG..."
+          git clone --depth 1 --branch $WINE_TAG https://gitlab.winehq.org/wine/wine.git wine-src
           
-          echo ">>> Reading Upstream Commit Hash..."
-          # Читаем хеш коммита, к которому привязан Staging
-          UPSTREAM_COMMIT=$(cat wine-staging/staging/upstream-commit | cut -d ' ' -f 1)
-          echo "Target Commit: $UPSTREAM_COMMIT"
-          
-          echo ">>> Cloning Wine Upstream..."
-          # Клонируем без depth=1, чтобы найти нужный коммит
-          git clone https://gitlab.winehq.org/wine/wine.git wine-src
-          
-          echo ">>> Checking out synced commit..."
-          cd wine-src
-          git checkout $UPSTREAM_COMMIT
-          echo "Synced successfully."
+          echo "Cloning Staging $STAGING_TAG..."
+          # Ссылка на официальный GitLab WineHQ Staging (зеркало)
+          git clone --depth 1 --branch $STAGING_TAG https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-      # 4. PATCHING (No Autoconf first)
+      # 4. PATCHING (SMART EXCLUDE)
       - name: Apply Patches
         run: |
-          # A. Staging
           cd wine-staging
-          # --no-autoconf предотвращает преждевременный запуск make_requests, который падал
-          # Мы запустим autoreconf сами позже
-          ./staging/patchinstall.py DESTDIR=../wine-src --all --no-autoconf
+          
+          # Применяем Staging, но ИСКЛЮЧАЕМ проблемные патчи, которые ломали билд (Exit code 8)
+          # xactengine3_7-PrepareWave: Конфликтует с апстримом в 11.1
+          # winex11-MWM_Decorations: Часто ломает оконный менеджер на Android
+          echo ">>> Applying Staging with Excludes..."
+          ./staging/patchinstall.py DESTDIR=../wine-src --all \
+            -W xactengine3_7-PrepareWave \
+            -W winex11-MWM_Decorations
+          
           cd ../wine-src
           
-          # B. GE Patches
-          mkdir -p ge_patches
+          # GE FSR Patch
+          mkdir ge_patches
           wget -q -O ge_patches/fshack.patch "$GE_PATCH_FSR"
-          wget -q -O ge_patches/ags.patch "$GE_PATCH_AGS"
           
-          # C. Apply GE (Fuzz 3)
-          echo ">>> Applying GE FShack..."
-          patch -p1 --fuzz=3 < ge_patches/fshack.patch || echo "WARN: FShack skipped"
+          echo ">>> Applying FSR..."
+          patch -p1 --fuzz=3 < ge_patches/fshack.patch || echo "WARN: FSR skipped"
           
-          echo ">>> Applying GE AGS..."
-          patch -p1 --fuzz=3 < ge_patches/ags.patch || echo "WARN: AGS skipped"
-          
-          # D. Manual Autoreconf (Safe Mode)
-          echo ">>> Regenerating configuration..."
+          echo ">>> Regenerating config..."
           autoreconf -fiv
-          
-          # Принудительно запускаем make_requests, чтобы обновить протоколы
-          ./tools/make_requests || echo "WARN: make_requests returned error, but we proceed if files exist"
+          ./tools/make_requests || true
 
-      # 5. BUILD TOOLS (Host x64)
+      # 5. BUILD TOOLS
       - name: Build Wine Tools (Host x64)
         run: |
           mkdir wine-tools
           cd wine-tools
-          
-          # Включаем Freetype для sfnt2fon
           ../wine-src/configure --enable-win64 --with-freetype --without-wayland --without-vulkan
-          
-          # Полный набор инструментов
           make -j$(nproc) \
             tools/winebuild/winebuild \
             tools/widl/widl \
@@ -130,12 +112,11 @@ jobs:
             tools/make_xftmpl \
             tools/sfnt2fon/sfnt2fon
 
-      # 6. CONFIGURE TARGET (ARM64)
+      # 6. CONFIGURE TARGET
       - name: Configure Wine (Target ARM64)
         run: |
           mkdir wine-build
           cd wine-build
-          
           export CFLAGS="-O2 -march=armv8.2-a+fp16+dotprod -fno-plt"
           export CROSSCFLAGS="-O2 -march=armv8.2-a+fp16+dotprod -g0 -mstrict-align -Wno-error"
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
@@ -146,7 +127,7 @@ jobs:
             --without-wine \
             --with-wine-tools=../wine-tools \
             --with-mingw=clang \
-            --prefix=/opt/wine-ge-custom \
+            --prefix=/opt/wine-custom \
             --disable-tests \
             --with-x \
             --without-wayland \
@@ -157,46 +138,39 @@ jobs:
             --without-sane \
             --without-oss
 
-      # 7. BUILD
-      - name: Build Wine
-        working-directory: wine-build
-        run: make -j$(nproc)
-
-      # 8. INSTALL
-      - name: Install to Image
-        working-directory: wine-build
-        run: make install DESTDIR=$PWD/../image
-
-      # 9. PACKAGE
-      - name: Package .wcp
+      # 7. BUILD & PACKAGE
+      - name: Build & Package
         run: |
-          cd image/opt
-          mv wine-ge-custom Wine-11-Staging-GE-ARM64
+          cd wine-build
+          make -j$(nproc)
+          make install DESTDIR=$PWD/../image
           
-          cat <<EOF > Wine-11-Staging-GE-ARM64/info.json
+          cd ../image/opt
+          mv wine-custom Wine-11.1-Staging-ARM64
+          
+          cat <<EOF > Wine-11.1-Staging-ARM64/info.json
           {
-            "name": "Wine-11-Staging-GE-ARM64",
-            "version": "11.x-Synced",
+            "name": "Wine-11.1-Staging-FSR",
+            "version": "11.1-staging",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Synced Staging Build. FSR + Fsync. Native ARM64."
+            "description": "Wine 11.1 + Staging (Smart). Native ARM64."
           }
           EOF
           
-          cat <<EOF > Wine-11-Staging-GE-ARM64/env.sh
+          cat <<EOF > Wine-11.1-Staging-ARM64/env.sh
           #!/bin/sh
           export WINEDEBUG="-all"
           export WINEESYNC=1
           export WINEFSYNC=1
           export WINE_FULLSCREEN_FSR=1
-          export WINE_FULLSCREEN_FSR_STRENGTH=2
           EOF
-          chmod +x Wine-11-Staging-GE-ARM64/env.sh
+          chmod +x Wine-11.1-Staging-ARM64/env.sh
           
-          tar -cJf ../../wine-staging-ge.wcp Wine-11-Staging-GE-ARM64
+          tar -cJf ../../wine-11.1-staging.wcp Wine-11.1-Staging-ARM64
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wine-staging-ge.wcp
-          path: wine-staging-ge.wcp
+          name: wine-11.1-staging.wcp
+          path: wine-11.1-staging.wcp
