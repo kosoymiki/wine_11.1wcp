@@ -1,4 +1,4 @@
-name: Build Wine 11 ARM64 (X11 Stable)
+name: Build Wine 11 ARM64 (Final Fix)
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
           sudo dpkg --add-architecture arm64
           sudo rm -rf /etc/apt/sources.list.d/*
           
-          # Настраиваем репозитории
+          # Перезапись sources.list (Azure x86 + Ports ARM64)
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble main restricted universe multiverse" | sudo tee /etc/apt/sources.list
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           echo "deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
@@ -35,7 +35,7 @@ jobs:
           
           sudo apt-get update
           
-          # Устанавливаем ВСЕ библиотеки для X11 и Vulkan
+          # Устанавливаем зависимости
           sudo apt-get install -y \
             wget curl git cmake make flex bison pkg-config \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
@@ -60,15 +60,20 @@ jobs:
       - name: Clone Wine Source
         run: git clone --depth 1 https://gitlab.winehq.org/wine/wine.git wine-src
 
-      # 3. Сборка инструментов (Host x64)
+      # 3. Сборка инструментов (Host x64) — ИСПРАВЛЕНО
       - name: Build Wine Tools (Host x64)
         run: |
           mkdir wine-tools
           cd wine-tools
+          # Конфигурация для хоста
           ../wine-src/configure --enable-win64 --without-x --without-freetype --without-wayland --without-vulkan
-          make -j$(nproc) tools
+          
+          # === ГЛАВНОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ ===
+          # Мы явно собираем tools/wine/wine (эмулятор), так как он нужен для кросс-билда.
+          # А также остальные инструменты.
+          make -j$(nproc) tools/wine/wine tools
 
-      # 4. Конфигурация Target (ARM64) - X11 ONLY
+      # 4. Конфигурация Target (ARM64)
       - name: Configure Wine (Target ARM64)
         run: |
           mkdir wine-build
@@ -113,11 +118,11 @@ jobs:
           
           cat <<EOF > Wine-11.0-ARM64/info.json
           {
-            "name": "Wine-11.0-ARM64-X11",
+            "name": "Wine-11.0-ARM64-Final",
             "version": "11.0-git",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Native AArch64 (X11 Backend). Cortex-X2 Optimized. Best for Winlator."
+            "description": "Native AArch64 (X11). Cortex-X2 Optimized. Includes Loader."
           }
           EOF
           
