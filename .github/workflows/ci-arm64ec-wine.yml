@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging PHAT + DXVK + VKD3D ARM64EC (Debug Mode - Fixed 3)
+name: Wine 11.1 Staging PHAT + DXVK + VKD3D ARM64EC (Final Fixed)
 
 on:
   workflow_dispatch:
@@ -88,7 +88,7 @@ jobs:
           make -j$(nproc) __tooldeps__
 
       # ============================================================
-      # ARM64EC + WOW64 BUILD (CRITICAL STEP - DEBUG MODE - FIXED CONFIGURE AGAIN)
+      # ARM64EC + WOW64 BUILD (CRITICAL STEP - FIXED CONFIGURE - HOST CORRECT)
       # ============================================================
       - name: Build Wine ARM64EC + WoW64
         run: |
@@ -111,9 +111,10 @@ jobs:
           export CXXFLAGS="$OPT -Wno-error"
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
 
-          # --- ВАЖНО: НЕ ИСПОЛЬЗУЕМ --host=aarch64-linux-gnu ---
-          # Указываем mingw и архитектуры Windows
+          # --- ВАЖНО: ИСПОЛЬЗУЕМ --host=aarch64-w64-windows-gnu для кросскомпиляции PE ---
+          # Это указывает configure, что целевая архитектура - Windows ARM64
           ../wine/configure \
+            --host=aarch64-w64-windows-gnu \
             --with-wine-tools=../host \
             --with-mingw=clang \
             --enable-win64 \
@@ -125,7 +126,7 @@ jobs:
             --without-wayland \
             --without-gstreamer \
             --without-cups \
-            --without-sane
+            --without-sane # Убрано || true из аргументов configure
 
           # Проверим, был ли создан Makefile ПОСЛЕ configure
           if [ ! -f "Makefile" ]; then
@@ -144,8 +145,8 @@ jobs:
       # ============================================================
       # PHAT WCP + DXVK + VKD3D INTEGRATION (Debug Mode)
       # ============================================================
-      - name: Create PHAT WCP
-        run: |   
+      - name: Create PHAT WCP      
+        run: |
           set -e
           cd build
           
@@ -194,8 +195,8 @@ jobs:
           fi
           mkdir -p temp_dxvk
           tar -xJf dxvk-gplasync-arm64ec-2.7.1-1.wcp -C temp_dxvk
-          # Копируем содержимое DXVK внутрь основного wcp
-          cp -r temp_dxvk/wcp/* wcp/          rm -rf temp_dxvk
+          # Копируем содержимое DXVK внутрь основного wcp          cp -r temp_dxvk/wcp/* wcp/
+          rm -rf temp_dxvk
 
           # -------------------------------
           # ИНТЕГРАЦИЯ VKD3D WCP
@@ -215,6 +216,7 @@ jobs:
           # -------------------------------
           # СОЗДАНИЕ env.sh и info.json
           # -------------------------------
+          # Команда cat имеет отступ 10 пробелов
           cat > wcp/env.sh << 'EOF'
           #!/bin/sh
           export WINEDEBUG=-all
@@ -224,14 +226,16 @@ jobs:
           export DXVK_ASYNC=1
           export MESA_LOADER_DRIVER_OVERRIDE=turnip
           EOF
+          # chmod имеет отступ 10 пробелов
           chmod +x wcp/env.sh
 
+          # Команда cat имеет отступ 10 пробелов
           cat > wcp/info.json << 'EOF'
           {
-          "name": "Wine-11.1-Staging-PHAT-DXVK-VKD3D-ARM64EC",
-          "version": "11.1",
-          "arch": "arm64",
-          "variant": "winlator-ultimate-arm64ec"
+            "name": "Wine-11.1-Staging-PHAT-DXVK-VKD3D-ARM64EC",
+            "version": "11.1",
+            "arch": "arm64",
+            "variant": "winlator-ultimate-arm64ec"
           }
           EOF
 
@@ -240,11 +244,11 @@ jobs:
           # -------------------------------
           echo "Creating final WCP archive..."
           tar -cJf $GITHUB_WORKSPACE/wine-11.1-staging-phat-dxvk-vkd3d-arm64ec.wcp -C wcp
-
           echo "Final WCP created:"
           ls -lh $GITHUB_WORKSPACE/*.wcp
 
-      # ============================================================      # UPLOAD ARTIFACT (Only run if previous steps succeeded)
+      # ============================================================
+      # UPLOAD ARTIFACT (Only run if previous steps succeeded)
       # ============================================================
       - name: Upload WCP Artifact
         uses: actions/upload-artifact@v4
