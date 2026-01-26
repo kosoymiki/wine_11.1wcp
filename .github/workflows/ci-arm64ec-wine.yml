@@ -134,12 +134,12 @@ jobs:
               cat config.log || echo "config.log not found or empty."
               echo "=============================="
               exit 1 # Explicitly fail if configure fails
-          else
+              else
               echo "Configure successful, Makefile exists. Starting make..."
               # Запускаем make, и если он не удался, шаг завершится с ошибкой
               make -j$(nproc)
               echo "Build (make) successful."
-          fi
+              fi
 
       # ============================================================
       # PHAT WCP + DXVK + VKD3D INTEGRATION (Debug Mode)
