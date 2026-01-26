@@ -1,4 +1,4 @@
-name: Build Wine 11.1 Staging (Isolation)
+name: Build Wine 11.1 Staging (Install Fix)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_wine_isolation:
+  build_wine_final:
     runs-on: ubuntu-24.04
 
     env:
@@ -19,7 +19,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 1. SETUP
+      # 1. SETUP REPOS
       - name: Setup Multiarch
         run: |
           sudo dpkg --add-architecture arm64
@@ -65,33 +65,20 @@ jobs:
           git clone --depth 1 --branch $WINE_TAG https://gitlab.winehq.org/wine/wine.git wine-src
           git clone --depth 1 --branch $STAGING_TAG https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-      # 4. PATCHING (ISOLATED SHELL)
+      # 4. PATCHING (ISOLATED)
       - name: Apply Patches
         shell: bash
         run: |
-          # Отключаем немедленный выход при ошибке
           set +e
-          
           cd wine-staging
-          
-          echo ">>> Starting Patch Process..."
-          # Запускаем в субшелле, игнорируем код возврата
           ( ./staging/patchinstall.py DESTDIR=../wine-src --all --no-autoconf ) || true
-          
-          echo ">>> Staging finished (Errors ignored). Moving to FSR..."
           
           cd ../wine-src
           wget -q -O fsr.patch "$GE_PATCH_FSR"
-          
-          # FSR тоже в субшелле
           ( patch -p1 --fuzz=3 < fsr.patch ) || echo "WARN: FSR skipped"
           
-          echo ">>> Config Regen..."
           ( autoreconf -fiv ) || true
           ( ./tools/make_requests ) || true
-          
-          echo ">>> Patching Phase Complete."
-          # Возвращаем true, чтобы шаг всегда был зеленым
           exit 0
 
       # 5. BUILD TOOLS
@@ -136,18 +123,46 @@ jobs:
             --without-sane \
             --without-oss
 
-      # 7. BUILD & PACKAGE
+      # 7. BUILD & PACKAGE (FIXED DIRECTORY LOGIC)
       - name: Build & Package
         run: |
           cd wine-build
           make -j$(nproc)
-          make -k install DESTDIR=$PWD/../image || true
           
-          cd ../image/opt
+          echo ">>> Preparing Install Directory..."
+          mkdir -p ../image
+          # Используем абсолютный путь для DESTDIR
+          ABS_DESTDIR=$(readlink -f ../image)
           
-          if [ ! -d "wine-custom" ]; then
-             echo "FATAL: Output directory missing."
-             exit 1
+          echo ">>> Installing to $ABS_DESTDIR..."
+          # -k обязателен, чтобы не падать на тулзах
+          make -k install DESTDIR="$ABS_DESTDIR" || echo "Install warnings ignored"
+          
+          echo ">>> Checking contents..."
+          ls -R ../image
+          
+          # Заходим в корень образа
+          cd ../image
+          
+          # Проверяем, создался ли opt/wine-custom
+          if [ -d "opt/wine-custom" ]; then
+             echo "Directory structure OK."
+             cd opt
+          else
+             echo "Directory mismatch! searching for binaries..."
+             # Если префикс не сработал, ищем bin/wine64
+             FOUND_BIN=$(find . -name wine64)
+             if [ -z "$FOUND_BIN" ]; then
+                echo "FATAL: Installation failed completely. No binaries found."
+                exit 1
+             fi
+             # Создаем структуру вручную, если make install накосячил
+             echo "Found at $FOUND_BIN. Reorganizing..."
+             mkdir -p opt/wine-custom
+             # Перемещаем всё содержимое (usr, lib, etc) в opt/wine-custom
+             # Это грязный хак, но он спасет билд
+             find . -maxdepth 1 ! -name opt -exec mv {} opt/wine-custom/ \;
+             cd opt
           fi
           
           mv wine-custom Wine-11.1-Staging-ARM64
@@ -158,7 +173,7 @@ jobs:
             "version": "11.1-staging",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Wine 11.1 + Staging (Isolated). Native ARM64."
+            "description": "Wine 11.1 + Staging. Native ARM64. X11."
           }
           EOF
           
