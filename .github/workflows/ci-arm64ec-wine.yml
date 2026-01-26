@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging ARM64 Production Build
+name: Wine 11.1 Staging ARM64 (Selective Patches)
 
 on:
   push:
@@ -12,20 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Environment
+      - name: Setup
         run: |
           sudo dpkg --add-architecture arm64
           sudo tee /etc/apt/sources.list <<'EOF'
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe multiverse
           EOF
-          
           sudo apt update -qq
           sudo apt install -y \
             build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            git flex bison autoconf libtool pkg-config python3-minimal wget \
+            git flex bison autoconf pkg-config python3-minimal wget \
             libfreetype-dev{,:arm64} libfontconfig1-dev:arm64 libx11-dev{,:arm64} \
             libxext-dev:arm64 libxrandr-dev:arm64 libxrender-dev:arm64 libxi-dev:arm64 \
             libxinerama-dev:arm64 libxcursor-dev:arm64 libxcomposite-dev:arm64 \
@@ -34,35 +33,69 @@ jobs:
             libpcap-dev:arm64 libpulse-dev:arm64 libdbus-1-dev:arm64 \
             libudev-dev:arm64 libsdl2-dev:arm64 libunwind-dev:arm64
 
-      - name: Get LLVM MinGW
+      - name: LLVM MinGW
         run: |
           wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ
           echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
 
-      - name: Clone Wine
+      - name: Clone
         run: |
           git clone --depth 1 -b wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
           git clone --depth 1 -b v11.1 https://gitlab.winehq.org/wine/wine-staging.git staging
 
-      - name: Patch
+      - name: Selective Patches (FEX + Turnip Optimized)
         run: |
-          cd staging && ./staging/patchinstall.py DESTDIR=../wine --all --no-autoconf || true
-          cd ../wine
+          cd staging/staging
+          
+          # Critical для ARM64 + Vulkan + ALSA
+          PATCHES=(
+            "ws2_32-TransmitFile"
+            "ntdll-NtDevicePath"
+            "ntdll-Syscall_Emulation"
+            "ntdll-WRITECOPY"
+            "ntdll-ForceBottomUpAlloc"
+            "server-PeekMessage"
+            "server-Realtime_Priority"
+            "winevulkan-VK_EXT_full_screen_exclusive"
+            "fsync-Misc"
+            "esync-Misc"
+            "winepulse-PulseAudio_Support"
+            "kernel32-CopyFileEx"
+            "user32-rawinput-mouse"
+            "user32-rawinput-keyboard"
+            "winex11-Vulkan_support"
+            "winex11-UpdateLayeredWindow"
+            "shell32-Progress_Dialog"
+            "wined3d-mesa_texture_download"
+            "wined3d-Indexed_Vertex_Blending"
+            "ddraw-Device_Caps"
+            "d3dx9_36-D3DXDisassembleShader"
+          )
+          
+          for patch in "${PATCHES[@]}"; do
+            echo ">>> Applying: $patch"
+            ../patches/patchinstall.sh DESTDIR=../../wine --all "$patch" 2>/dev/null || true
+          done
+          
+          cd ../../wine
+          
+          # FSR patch
           wget -qO fsr.patch https://raw.githubusercontent.com/GloriousEggroll/proton-ge-custom/master/patches/wine-hotfixes/staging/proton-fshack-staging.patch
-          patch -p1 --fuzz=3 < fsr.patch || true
+          patch -p1 --fuzz=3 < fsr.patch 2>/dev/null || echo "FSR partial applied"
+          
           autoreconf -fiv
 
-      - name: Build Host Tools
+      - name: Build Tools
         run: |
           mkdir host && cd host
           ../wine/configure --enable-win64 --disable-tests
           make -j$(nproc) __tooldeps__
 
-      - name: Build ARM64
+      - name: Configure ARM64
         run: |
           mkdir build && cd build
           PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig \
-          CFLAGS="-O3 -march=armv8.2-a+fp16+dotprod -mtune=cortex-a76" \
+          CFLAGS="-O3 -march=armv8.2-a+fp16+dotprod -mtune=cortex-a76 -fno-plt" \
           CROSSCFLAGS="-O3 -march=armv8.2-a+fp16+dotprod -mtune=cortex-a76 -mstrict-align" \
           ../wine/configure \
             --host=aarch64-linux-gnu \
@@ -72,11 +105,23 @@ jobs:
             --prefix=/usr \
             --libdir=/usr/lib \
             --disable-tests \
-            --with-x --with-vulkan --with-freetype \
-            --without-wayland --without-gstreamer --without-cups --without-sane --without-oss
+            --with-x \
+            --with-vulkan \
+            --with-freetype \
+            --with-pulse \
+            --with-alsa \
+            --without-wayland \
+            --without-gstreamer \
+            --without-cups \
+            --without-sane \
+            --without-oss
+
+      - name: Build
+        run: |
+          cd build
           make -j$(nproc)
 
-      - name: Package WCP
+      - name: Package
         run: |
           cd build
           DESTDIR=$PWD/pkg make install-lib
@@ -88,26 +133,36 @@ jobs:
           
           cat > info.json <<'JSON'
           {
-            "name": "Wine-11.1-Staging-S8G1",
+            "name": "Wine-11.1-FEX-Turnip",
             "version": "11.1",
             "arch": "arm64",
-            "variant": "staging",
+            "variant": "staging-selective",
             "glibc": "2.35",
-            "target": "snapdragon-8plus-gen1",
-            "features": ["staging","fsr","fsync","esync"]
+            "target": "fexcore-2601-turnip-26",
+            "features": ["fsync","esync","fsr","vulkan","alsa","pulse"]
           }
           JSON
           
           cat > env.sh <<'SH'
           #!/bin/sh
-          export WINEDEBUG=-all WINEESYNC=1 WINEFSYNC=1 WINE_FULLSCREEN_FSR=1
+          export WINEDEBUG=-all
+          export WINEESYNC=1
+          export WINEFSYNC=1
+          export WINE_FULLSCREEN_FSR=1
+          export WINE_VK_VULKAN_ONLY=1
+          export PULSE_LATENCY_MSEC=60
           SH
           chmod +x env.sh
           
-          tar -cJf $GITHUB_WORKSPACE/wine-s8g1.wcp bin lib share info.json env.sh
-          tar -tJf $GITHUB_WORKSPACE/wine-s8g1.wcp | head -30
+          tar -cJf $GITHUB_WORKSPACE/wine-fex-turnip.wcp bin lib share info.json env.sh
+          
+          echo "=== Structure ==="
+          tar -tJf $GITHUB_WORKSPACE/wine-fex-turnip.wcp | head -30
+          
+          echo "=== Size ==="
+          ls -lh $GITHUB_WORKSPACE/wine-fex-turnip.wcp
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wine-11.1-staging-s8g1
-          path: wine-s8g1.wcp
+          name: wine-11.1-fex-turnip
+          path: wine-fex-turnip.wcp
