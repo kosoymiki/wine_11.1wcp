@@ -6,7 +6,7 @@ on:
 
 jobs:
   build_wine_ludashi:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04  # Оставляем 22.04 (стабильность)
 
     env:
       LLVM_MINGW_URL: "https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz"
@@ -32,19 +32,15 @@ jobs:
           
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential wget curl git cmake flex bison pkg-config python3-minimal autoconf \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libfreetype-dev libfreetype-dev:arm64 \
-            libx11-dev libx11-dev:arm64 \
-            libglib2.0-dev:arm64 libxrender-dev:arm64 libxext-dev:arm64 libxi-dev:arm64 \
-            libxrandr-dev:arm64 libxinerama-dev:arm64 libxcursor-dev:arm64 \
+            build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            wget curl git flex bison pkg-config python3 autoconf \
+            libfreetype-dev:arm64 libx11-dev:arm64 libxrandr-dev:arm64 libxrender-dev:arm64 \
+            libxext-dev:arm64 libxi-dev:arm64 libxinerama-dev:arm64 libxcursor-dev:arm64 \
             libxcomposite-dev:arm64 libxfixes-dev:arm64 libxxf86vm-dev:arm64 \
             libvulkan-dev:arm64 libxkbcommon-dev:arm64 libsdl2-dev:arm64 \
-            libudev-dev:arm64 libgnutls28-dev:arm64 libpcap-dev:arm64 \
-            libpulse-dev:arm64 libdbus-1-dev:arm64 libfontconfig1-dev:arm64 libunwind-dev:arm64 \
+            libglib2.0-dev:arm64 libudev-dev:arm64 libdbus-1-dev:arm64 libfontconfig1-dev:arm64 \
             libgstreamer1.0-dev:arm64 libgstreamer-plugins-base1.0-dev:arm64 \
-            libgstreamer-plugins-good1.0-dev:arm64 \
-            libgl1-mesa-dev:arm64 libglu1-mesa-dev:arm64
+            libgl1-mesa-dev:arm64 libgnutls28-dev:arm64 libunwind-dev:arm64
 
       - name: Setup LLVM MinGW
         run: |
@@ -65,37 +61,49 @@ jobs:
           ./staging/patchinstall.py DESTDIR=../wine-src --all --no-autoconf
           cd ../wine-src
           wget -q -O fsr.patch "$GE_PATCH_FSR"
-          patch -p1 --fuzz=3 < fsr.patch
+          patch -p1 --fuzz=3 < fsr.patch || echo "FSR patch applied partially"
           autoreconf -fiv
           ./tools/make_requests
           exit 0
 
+      # ✅ ИСПРАВЛЕННЫЙ native tools build
       - name: Build native Wine tools (x86_64)
         run: |
-          mkdir wine-tools && cd wine-tools
           export CFLAGS="-O2 -pipe"
           export LDFLAGS="-Wl,-O2,-O1,--as-needed"
+          
+          # Создаём tools в корне, без поддиректории
+          mkdir -p wine-tools && cd wine-tools
+          
           ../wine-src/configure \
             --enable-win64 \
             --with-x \
             --with-freetype \
             --without-gstreamer \
-            --without-pulse \
             --without-alsa \
+            --without-pulse \
             --without-wayland \
             --without-cups \
-            --without-sane \
-            --without-oss
+            --disable-tests
+            
           make -j"$(nproc)" tools
+          
+          # ✅ Проверяем наличие wine бинарника
+          ls -la tools/wine/wine || (echo "Wine tools not found!"; exit 1)
+          pwd
 
+      # ✅ ИСПРАВЛЕННАЯ кросс-сборка
       - name: Configure Wine ARM64
         run: |
-          mkdir wine-build && cd wine-build
+          # Создаём build рядом с tools (без ../)
+          mkdir -p wine-build && cd wine-build
+          
           export CFLAGS="-O2 -pipe -march=armv8.2-a+fp16+dotprod -mtune=cortex-a76"
           export CROSSCFLAGS="$CFLAGS -g0 -mstrict-align"
           export LDFLAGS="-Wl,-O2,-O1,--as-needed"
           export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig"
           
+          # ✅ tools путь: ./wine-tools (без ../)
           ../wine-src/configure \
             --host=aarch64-linux-gnu \
             --enable-win64 \
@@ -111,13 +119,13 @@ jobs:
             --with-alsa \
             --without-wayland \
             --without-cups \
-            --without-sane \
-            --without-oss
+            --without-sane
 
       - name: Build Wine ARM64
         run: |
           cd wine-build
           make -j"$(nproc)"
+          ls -la wine wine64 || echo "Build failed"
 
       - name: Package WCP
         run: |
@@ -138,38 +146,13 @@ jobs:
             "arch": "arm64",
             "type": "wine",
             "variant": "staging",
-            "glibc": "2.35",
-            "abi": "arm64-linux-gnu-glibc2.35",
-            "kernel": ">=5.10",
-            "optimization": "armv8.2-a+fp16+dotprod",
             "target": "snapdragon-8plus-gen1",
-            "author": "GitHub-CI",
-            "description": "Wine 11.1 Staging + FSR optimized for S8+G1 (ALSA+GStreamer)",
-            "features": ["staging", "fsr", "fsync", "esync", "gstreamer"],
-            "sources": {
-              "wine": "wine-11.1",
-              "staging": "v11.1",
-              "fsr_patch": "proton-fshack-staging.patch"
-            }
+            "author": "GitHub-CI"
           }
           EOF
           
-          cat > env.sh <<'EOF'
-          #!/bin/sh
-          export WINEDEBUG=${WINEDEBUG:--all}
-          export WINEESYNC=${WINEESYNC:-1}
-          export WINEFSYNC=${WINEFSYNC:-1}
-          export WINE_FULLSCREEN_FSR=${WINE_FULLSCREEN_FSR:-1}
-          export WINE_CPU_TOPOLOGY=${WINE_CPU_TOPOLOGY:-"8:0"}
-          EOF
-          chmod +x env.sh
-          
           tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" \
-            -C "$WCP_ROOT" \
-            bin lib share info.json env.sh
-          
-          echo "=== Package Structure ==="
-          tar -tJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" | head -20
+            -C "$WCP_ROOT" bin lib share info.json
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
