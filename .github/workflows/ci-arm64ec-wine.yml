@@ -1,4 +1,4 @@
-name: Build Wine 11.1 Staging (Install Fix)
+name: Build Wine 11.1 Staging (Manual Install)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_wine_final:
+  build_wine_manual_install:
     runs-on: ubuntu-24.04
 
     env:
@@ -19,7 +19,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 1. SETUP REPOS
+      # 1. SETUP
       - name: Setup Multiarch
         run: |
           sudo dpkg --add-architecture arm64
@@ -65,7 +65,7 @@ jobs:
           git clone --depth 1 --branch $WINE_TAG https://gitlab.winehq.org/wine/wine.git wine-src
           git clone --depth 1 --branch $STAGING_TAG https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-      # 4. PATCHING (ISOLATED)
+      # 4. PATCHING
       - name: Apply Patches
         shell: bash
         run: |
@@ -123,46 +123,49 @@ jobs:
             --without-sane \
             --without-oss
 
-      # 7. BUILD & PACKAGE (FIXED DIRECTORY LOGIC)
+      # 7. BUILD & PACKAGE (SURGICAL INSTALL)
       - name: Build & Package
         run: |
           cd wine-build
+          
+          # 1. Build everything first
           make -j$(nproc)
           
-          echo ">>> Preparing Install Directory..."
+          echo ">>> Prepare Install Directory"
           mkdir -p ../image
-          # Используем абсолютный путь для DESTDIR
           ABS_DESTDIR=$(readlink -f ../image)
           
-          echo ">>> Installing to $ABS_DESTDIR..."
-          # -k обязателен, чтобы не падать на тулзах
-          make -k install DESTDIR="$ABS_DESTDIR" || echo "Install warnings ignored"
+          # 2. Surgical Install (Install subcomponents individually)
+          # Это обходит ошибку в корневом Makefile
           
-          echo ">>> Checking contents..."
-          ls -R ../image
+          echo ">>> Installing Loader (wine64)..."
+          cd loader && make install DESTDIR="$ABS_DESTDIR" && cd ..
           
-          # Заходим в корень образа
-          cd ../image
+          echo ">>> Installing Server (wineserver)..."
+          cd server && make install DESTDIR="$ABS_DESTDIR" && cd ..
           
-          # Проверяем, создался ли opt/wine-custom
-          if [ -d "opt/wine-custom" ]; then
-             echo "Directory structure OK."
-             cd opt
-          else
-             echo "Directory mismatch! searching for binaries..."
-             # Если префикс не сработал, ищем bin/wine64
-             FOUND_BIN=$(find . -name wine64)
-             if [ -z "$FOUND_BIN" ]; then
-                echo "FATAL: Installation failed completely. No binaries found."
-                exit 1
-             fi
-             # Создаем структуру вручную, если make install накосячил
-             echo "Found at $FOUND_BIN. Reorganizing..."
-             mkdir -p opt/wine-custom
-             # Перемещаем всё содержимое (usr, lib, etc) в opt/wine-custom
-             # Это грязный хак, но он спасет билд
-             find . -maxdepth 1 ! -name opt -exec mv {} opt/wine-custom/ \;
-             cd opt
+          echo ">>> Installing Libraries (DLLs)..."
+          cd dlls && make install DESTDIR="$ABS_DESTDIR" && cd ..
+          
+          echo ">>> Installing Programs (winecfg, etc)..."
+          cd programs && make install DESTDIR="$ABS_DESTDIR" && cd ..
+          
+          echo ">>> Installing Includes..."
+          cd include && make install DESTDIR="$ABS_DESTDIR" && cd ..
+          
+          # Опционально: шрифты (могут упасть, поэтому || true)
+          echo ">>> Installing Fonts..."
+          ( cd fonts && make install DESTDIR="$ABS_DESTDIR" ) || echo "WARN: Fonts install skipped"
+          cd ..
+          
+          # 3. Packaging
+          echo ">>> Verifying & Packaging..."
+          cd ../image/opt
+          
+          if [ ! -d "wine-custom" ]; then
+             echo "FATAL: Install failed. Folder structure:"
+             ls -R ..
+             exit 1
           fi
           
           mv wine-custom Wine-11.1-Staging-ARM64
@@ -173,7 +176,7 @@ jobs:
             "version": "11.1-staging",
             "arch": "arm64",
             "author": "GitHubCI",
-            "description": "Wine 11.1 + Staging. Native ARM64. X11."
+            "description": "Wine 11.1 + Staging (Surgical Install). Native ARM64."
           }
           EOF
           
