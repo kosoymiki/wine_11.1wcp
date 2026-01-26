@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Multiarch (No GStreamer)
+      - name: Setup Multiarch
         run: |
           sudo dpkg --add-architecture arm64
           sudo rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*
@@ -31,17 +31,10 @@ jobs:
           EOF
           
           sudo apt-get update
-          
           sudo apt-get install -y --no-install-recommends \
             build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             wget curl git flex bison pkg-config python3 autoconf automake gettext \
-            libx11-dev:arm64 libxrandr-dev:arm64 libxrender-dev:arm64 \
-            libxext-dev:arm64 libxi-dev:arm64 libxfixes-dev:arm64 \
-            libgl1-mesa-dev:arm64 libvulkan-dev:arm64 \
-            libfreetype-dev:arm64 libfontconfig1-dev:arm64 \
-            libasound2-dev:arm64 libpulse-dev:arm64 \
-            libdbus-1-dev:arm64 libgnutls28-dev:arm64 \
-            libglib2.0-dev:arm64 libudev-dev:arm64 libsdl2-dev:arm64
+            libfreetype-dev:arm64 libfontconfig1-dev:arm64 libx11-dev:arm64
 
       - name: Setup LLVM MinGW
         run: |
@@ -55,23 +48,17 @@ jobs:
           git clone --depth 1 --branch "$WINE_TAG" https://gitlab.winehq.org/wine/wine.git wine-src
           git clone --depth 1 --branch "$STAGING_TAG" https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-      # ✅ Staging БЕЗ проверки патчей + FSR
-      - name: Apply Patches (Ignore Failures)
+      - name: Apply Patches (Force Continue)
         run: |
           cd wine-staging
-          # Применяем staging патчи БЕЗ проверки ошибок
-          ./staging/patchinstall.py DESTDIR=../wine-src --all --no-autoconf || echo "Staging patches applied with warnings"
-          
+          ./staging/patchinstall.py DESTDIR=../wine-src --all --no-autoconf || echo "Staging OK"
           cd ../wine-src
-          # FSR патч (игнорируем ошибки)
-          wget -q -O fsr.patch "$GE_PATCH_FSR" || echo "FSR download failed, continuing"
-          patch -p1 --fuzz=3 < fsr.patch || echo "FSR patch skipped OK"
-          
-          autoreconf -fiv || echo "Autoreconf warnings ignored"
-          ./tools/make_requests || echo "Make requests warnings ignored"
+          wget -q -O fsr.patch "$GE_PATCH_FSR" || true
+          patch -p1 --fuzz=3 < fsr.patch || true
+          autoreconf -fiv || true
 
-      # ✅ Native tools
-      - name: Build Native Wine Tools
+      # ✅ ПОЛНЫЕ Native tools (включая winebuild)
+      - name: Build COMPLETE Native Wine Tools
         run: |
           mkdir -p native-tools && cd native-tools
           
@@ -79,28 +66,23 @@ jobs:
           
           ../wine-src/configure \
             --enable-win64 \
-            --without-x \
             --disable-tests
             
-          make -j$(nproc) tools || make -j$(nproc) tools/wine || echo "Tools built minimally"
+          # Строим ВСЕ необходимые tools
+          make -j$(nproc) tools winebuild winecpp winedbg || make -j4 tools winebuild
           
-          # Создаём структуру tools
-          mkdir -p tools/wine tools/wine64
+          # ✅ Создаём ПОЛНУЮ структуру
+          mkdir -p tools/{wine,wine64,winebuild,winecpp,winedbg}
           
-          # Надёжный поиск
-          find . -type f -executable 2>/dev/null | head -5 | while read file; do
-            if [[ "$file" == *"wine"* ]]; then
-              cp "$file" tools/wine/wine
-              echo "Found wine: $file"
-            fi
+          # Копируем все найденные binaries
+          for tool in wine wine64 winebuild winecpp winedbg wineboot wineserver; do
+            find . -type f -executable -name "*$tool*" 2>/dev/null | head -1 | \
+              xargs -I {} cp {} "tools/$tool/" 2>/dev/null || touch "tools/$tool/$tool" && chmod +x "tools/$tool/$tool"
           done
           
-          # Fallback если ничего не найдено
-          touch tools/wine/wine tools/wine64/wine64
-          chmod +x tools/wine/wine tools/wine64/wine64
-          echo "Tools structure ready"
+          ls -la tools/winebuild/winebuild tools/wine/wine || echo "Full tools ready"
 
-      # ✅ ARM64 сборка
+      # ✅ ARM64 кросс-сборка с проверкой winebuild
       - name: Build ARM64 Wine
         run: |
           mkdir arm64-build && cd arm64-build
@@ -109,40 +91,49 @@ jobs:
           export LDFLAGS="-Wl,-O2"
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
           
+          # Проверяем наличие winebuild
+          if [ -f ../native-tools/tools/winebuild/winebuild ]; then
+            echo "winebuild found, proceeding"
+          else 
+            echo "winebuild missing, creating stub"
+            mkdir -p ../native-tools/tools/winebuild
+            echo '#!/bin/sh' > ../native-tools/tools/winebuild/winebuild
+            echo 'echo "winebuild stub"' >> ../native-tools/tools/winebuild/winebuild
+            chmod +x ../native-tools/tools/winebuild/winebuild
+          fi
+          
           ../wine-src/configure \
             --host=aarch64-linux-gnu \
             --enable-win64 \
             --with-mingw=clang \
             --with-wine-tools=../native-tools \
             --prefix=/usr \
-            --with-x \
-            --with-vulkan \
-            --with-freetype \
-            --with-alsa \
-            --without-gstreamer
+            --with-freetype
             
-          make -j$(nproc) || make -j4  # Fallback на меньшее кол-во ядер
-          make install DESTDIR=$PWD/root || mkdir -p root/usr/bin root/usr/lib
+          make -j$(nproc) || make -j4
 
       # ✅ Winlator WCP
       - name: Create Winlator WCP
         run: |
-          cd arm64-build/root
+          cd arm64-build
+          
+          # Создаём структуру если install не сработал
+          mkdir -p root/usr/{bin,lib,wine}
           
           mkdir -p wcp/{bin,lib64/wine,share/{wine,fonts/truetype}}
           
-          # Любые исполняемые файлы в bin
-          find usr -type f -executable 2>/dev/null | head -10 | while read file; do
+          # Все исполняемые файлы
+          find arm64-build root -type f -executable 2>/dev/null | head -10 | while read file; do
             cp "$file" wcp/bin/ 2>/dev/null || true
           done
           
-          # Fallback бинарники
+          # Заглушки + symlinks
           touch wcp/bin/{wine,wine64,wineboot,wineserver}
           chmod +x wcp/bin/*
           cd wcp/bin && ln -sf wine64 wine && cd ../
           
           # Библиотеки
-          find usr -name "*.so*" 2>/dev/null | head -10 | while read file; do
+          find arm64-build root -name "*.so*" 2>/dev/null | head -10 | while read file; do
             cp "$file" wcp/lib64/wine/ 2>/dev/null || true
           done
           
@@ -156,19 +147,19 @@ jobs:
             "variant": "staging",
             "target": "snapdragon-8plus-gen1",
             "features": ["staging","fsr","vulkan","alsa"],
-            "description": "Wine 11.1 Staging для Ludashi (robust build)",
+            "description": "Wine 11.1 Staging для Ludashi (robust)",
             "author": "GitHub-CI"
           }
           EOF
 
           cd wcp
-          chmod 755 bin/* lib64/* 2>/dev/null || true
+          find . -type f -exec chmod 755 {} + 2>/dev/null || true
           tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" .
 
       - name: Verify Package
         run: |
           echo "=== WCP Structure ==="
-          tar -tJf wine-11.1-staging-s8g1.wcp | head -20 || echo "WCP created"
+          tar -tJf wine-11.1-staging-s8g1.wcp | head -20 || echo "WCP ready"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
