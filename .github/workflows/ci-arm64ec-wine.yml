@@ -68,7 +68,7 @@ jobs:
           ./tools/make_requests
           exit 0
 
-      # 1) Нативный x86_64 билд, чтобы получить wine-tools (требуется configure при cross-compiling) [web:20][web:21]
+      # Нативный x86_64 билд для wine-tools (обязателен для кросс-сборки)
       - name: Build native Wine tools (x86_64)
         run: |
           mkdir wine-tools && cd wine-tools
@@ -81,17 +81,16 @@ jobs:
             --with-x \
             --with-freetype \
             --with-gstreamer \
-            --with-pulse \
+            --without-pulse \
             --without-alsa \
             --without-wayland \
             --without-cups \
             --without-sane \
             --without-oss
 
-          # Важно собрать именно tools, чтобы в каталоге появились winebuild/makedep/wmc/и т.д. [web:20]
           make -j"$(nproc)" tools
 
-      # 2) Кросс‑сборка Wine ARM64, используя уже собранные wine-tools
+      # Кросс-сборка Wine ARM64 с использованием готовых wine-tools
       - name: Configure Wine ARM64
         run: |
           mkdir wine-build && cd wine-build
@@ -112,8 +111,8 @@ jobs:
             --with-vulkan \
             --with-freetype \
             --with-gstreamer \
-            --with-pulse \
-            --without-alsa \
+            --without-pulse \
+            --with-alsa \
             --without-wayland \
             --without-cups \
             --without-sane \
@@ -149,8 +148,8 @@ jobs:
             "optimization": "armv8.2-a+fp16+dotprod",
             "target": "snapdragon-8plus-gen1",
             "author": "GitHub-CI",
-            "description": "Wine 11.1 Staging + FSR optimized for S8+G1",
-            "features": ["staging", "fsr", "fsync", "esync", "lto"],
+            "description": "Wine 11.1 Staging + FSR optimized for S8+G1 (ALSA audio)",
+            "features": ["staging", "fsr", "fsync", "esync"],
             "sources": {
               "wine": "wine-11.1",
               "staging": "v11.1",
@@ -173,10 +172,10 @@ jobs:
             -C "$WCP_ROOT" \
             bin lib share info.json env.sh
           
-          echo "=== Structure ==="
+          echo "=== Package Structure ==="
           tar -tJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" | head -20
 
-      - name: Upload
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: wine-11.1-staging-s8g1
