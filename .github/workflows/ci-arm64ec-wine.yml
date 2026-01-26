@@ -124,7 +124,7 @@ jobs:
             --without-sane \
             --without-oss
 
-            # 7. BUILD & PACKAGE (LUDASHI FIX)
+      # 7. BUILD & PACKAGE (PERMISSIONS FIX)
       - name: Build & Package
         run: |
           cd wine-build
@@ -134,30 +134,34 @@ jobs:
           mkdir -p ../image
           ABS_DESTDIR=$(readlink -f ../image)
           
-          # STRIP=true - чтобы не падало
+          # STRIP=true обходит ошибку стриппера
           make install DESTDIR="$ABS_DESTDIR" STRIP=true
           
           echo ">>> Post-Install Fixes..."
           cd ../image/opt/wine-custom
           
           # === FIX 1: Создаем симлинк wine -> wine64 ===
-          # Winlator ищет файл "bin/wine", чтобы подтвердить, что это Wine.
           cd bin
           ln -sf wine64 wine
           cd ..
           
-          # === FIX 2: Права доступа ===
-          # Убеждаемся, что бинарники исполняемые
-          chmod +x bin/*
+          # === FIX 2: Умная настройка прав (Smart Chmod) ===
+          echo ">>> Setting executable permissions..."
+          # Ищем ТОЛЬКО файлы (-type f) в папке bin и даем им +x.
+          # Это игнорирует битые симлинки и не валит билд.
+          find bin -type f -exec chmod +x {} \;
+          
+          # Также даем права библиотекам (на всякий случай)
+          find lib -name "*.so" -exec chmod +x {} \;
           
           echo ">>> Packaging..."
           cd ..
-          # Переименовываем папку
+          # Переименовываем для красоты
           FOLDER_NAME="Wine-11.1-Staging-ARM64"
           mv wine-custom "$FOLDER_NAME"
           cd "$FOLDER_NAME"
           
-          # === FIX 3: Расширенный INFO.JSON для Ludashi ===
+          # === INFO.JSON (Ludashi Compat) ===
           cat <<EOF > info.json
           {
             "name": "Wine-11.1-Staging-ARM64",
@@ -167,11 +171,11 @@ jobs:
             "variant": "staging",
             "category": "wine",
             "author": "GitHubCI",
-            "description": "Native ARM64 build. Staging + FSR. Fixed for Ludashi."
+            "description": "Native ARM64 build. Staging + FSR + Fsync. Fixed Permissions."
           }
           EOF
           
-          # Скрипт окружения
+          # === ENV.SH ===
           cat <<EOF > env.sh
           #!/bin/sh
           export WINEDEBUG="-all"
@@ -182,16 +186,19 @@ jobs:
           chmod +x env.sh
           
           echo ">>> Compressing..."
-          cd ../..
-          # Важно: упаковываем папку целиком.
-          # Структура в архиве будет: Wine-11.1-Staging-ARM64 / [bin, lib, info.json]
-          tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-ludashi.wcp" -C image/opt "$FOLDER_NAME"
+          # Выходим в папку image/opt
+          cd ..
           
-          echo ">>> Done."
+          # Создаем архив в корне рабочей директории ($GITHUB_WORKSPACE)
+          # Чтобы шаг Upload Artifact точно его нашел
+          tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-ludashi.wcp" "$FOLDER_NAME"
+          
+          echo ">>> Artifact Ready:"
           ls -lh "$GITHUB_WORKSPACE/wine-11.1-staging-ludashi.wcp"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: wine-11.1-staging-ludashi.wcp
-          path: wine-11.1-staging-ludashi.wcp
+          # Указываем точный путь к файлу, который мы создали
+          path: ${{ github.workspace }}/wine-11.1-staging-ludashi.wcp
