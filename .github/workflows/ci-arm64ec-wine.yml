@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging PHAT + DXVK + VKD3D ARM64EC (Final Fixed)
+name: Wine 11.1 Staging PHAT + DXVK + VKD3D ARM64EC (Fixed Host Spec)
 
 on:
   workflow_dispatch:
@@ -88,7 +88,7 @@ jobs:
           make -j$(nproc) __tooldeps__
 
       # ============================================================
-      # ARM64EC + WOW64 BUILD (CRITICAL STEP - FIXED CONFIGURE - HOST CORRECT)
+      # ARM64EC + WOW64 BUILD (CRITICAL STEP - FIXED HOST SPEC)
       # ============================================================
       - name: Build Wine ARM64EC + WoW64
         run: |
@@ -111,10 +111,10 @@ jobs:
           export CXXFLAGS="$OPT -Wno-error"
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
 
-          # --- ВАЖНО: ИСПОЛЬЗУЕМ --host=aarch64-w64-windows-gnu для кросскомпиляции PE ---
-          # Это указывает configure, что целевая архитектура - Windows ARM64
+          # --- ВАЖНО: ИСПОЛЬЗУЕМ ПРАВИЛЬНЫЙ --host=aarch64-w64-mingw32 для кросскомпиляции PE ---
+          # Это указывает configure, что целевая архитектура - Windows ARM64 через MinGW
           ../wine/configure \
-            --host=aarch64-w64-windows-gnu \
+            --host=aarch64-w64-mingw32 \
             --with-wine-tools=../host \
             --with-mingw=clang \
             --enable-win64 \
@@ -126,7 +126,7 @@ jobs:
             --without-wayland \
             --without-gstreamer \
             --without-cups \
-            --without-sane # Убрано || true из аргументов configure
+            --without-sane
 
           # Проверим, был ли создан Makefile ПОСЛЕ configure
           if [ ! -f "Makefile" ]; then
@@ -145,7 +145,7 @@ jobs:
       # ============================================================
       # PHAT WCP + DXVK + VKD3D INTEGRATION (Debug Mode)
       # ============================================================
-      - name: Create PHAT WCP      
+      - name: Create PHAT WCP     
         run: |
           set -e
           cd build
