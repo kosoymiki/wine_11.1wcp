@@ -1,5 +1,4 @@
 name: Build Wine 11.1 Staging ARM64 for Ludashi
-
 on:
   push:
     branches: ["main"]
@@ -42,7 +41,11 @@ jobs:
             libvulkan-dev:arm64 libxkbcommon-dev:arm64 libsdl2-dev:arm64 \
             libudev-dev:arm64 libgnutls28-dev:arm64 libpcap-dev:arm64 \
             libpulse-dev:arm64 libdbus-1-dev:arm64 libfontconfig1-dev:arm64 libunwind-dev:arm64 \
-            libgstreamer1.0-dev:arm64
+            # Полный GStreamer для ARM64
+            libgstreamer1.0-dev:arm64 libgstreamer-plugins-base1.0-dev:arm64 \
+            libgstreamer-plugins-good1.0-dev:arm64 \
+            # Дополнительно для чистоты configure
+            libgl1-mesa-dev:arm64 libglu1-mesa-dev:arm64
 
       - name: Setup LLVM MinGW
         run: |
@@ -68,14 +71,12 @@ jobs:
           ./tools/make_requests
           exit 0
 
-      # Нативный x86_64 билд для wine-tools (обязателен для кросс-сборки)
+      # Нативный x86_64 билд для wine-tools
       - name: Build native Wine tools (x86_64)
         run: |
           mkdir wine-tools && cd wine-tools
-
           export CFLAGS="-O2 -pipe"
           export LDFLAGS="-Wl,-O2,-O1,--as-needed"
-
           ../wine-src/configure \
             --enable-win64 \
             --with-x \
@@ -87,19 +88,17 @@ jobs:
             --without-cups \
             --without-sane \
             --without-oss
-
           make -j"$(nproc)" tools
 
-      # Кросс-сборка Wine ARM64 с использованием готовых wine-tools
+      # Кросс-сборка Wine ARM64
       - name: Configure Wine ARM64
         run: |
           mkdir wine-build && cd wine-build
-
           export CFLAGS="-O2 -pipe -march=armv8.2-a+fp16+dotprod -mtune=cortex-a76"
           export CROSSCFLAGS="$CFLAGS -g0 -mstrict-align"
           export LDFLAGS="-Wl,-O2,-O1,--as-needed"
-          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
-
+          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig
+          
           ../wine-src/configure \
             --host=aarch64-linux-gnu \
             --enable-win64 \
@@ -132,8 +131,8 @@ jobs:
           
           cd "$WCP_ROOT"
           cd bin && ln -sf wine64 wine && cd ..
-          find bin -type f -exec chmod +x {} ;
-          find lib -name "*.so*" -exec chmod +x {} ;
+          find bin -type f -exec chmod +x {} +
+          find lib -name "*.so*" -exec chmod +x {} +
           
           cat > info.json <<'EOF'
           {
@@ -149,7 +148,7 @@ jobs:
             "target": "snapdragon-8plus-gen1",
             "author": "GitHub-CI",
             "description": "Wine 11.1 Staging + FSR optimized for S8+G1 (ALSA audio)",
-            "features": ["staging", "fsr", "fsync", "esync"],
+            "features": ["staging", "fsr", "fsync", "esync", "gstreamer"],
             "sources": {
               "wine": "wine-11.1",
               "staging": "v11.1",
