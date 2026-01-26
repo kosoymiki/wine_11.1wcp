@@ -1,4 +1,4 @@
-name: Build Wine 11.1 ARM64 for Ludashi CMOD 2.8.1
+name: Build Wine 11.1 Staging ARM64 for Ludashi
 
 on:
   push:
@@ -27,10 +27,8 @@ jobs:
           cat <<EOF | sudo tee /etc/apt/sources.list
           deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
           deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
-          deb [arch=amd64] http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse
           EOF
           
           sudo apt-get update
@@ -43,10 +41,9 @@ jobs:
             libxcomposite-dev:arm64 libxfixes-dev:arm64 libxxf86vm-dev:arm64 \
             libvulkan-dev:arm64 libxkbcommon-dev:arm64 libsdl2-dev:arm64 \
             libudev-dev:arm64 libgnutls28-dev:arm64 libpcap-dev:arm64 \
-            libpulse-dev:arm64 libdbus-1-dev:arm64 libfontconfig1-dev:arm64 \
-            libunwind-dev:arm64
+            libpulse-dev:arm64 libdbus-1-dev:arm64 libfontconfig1-dev:arm64 libunwind-dev:arm64
           
-          sudo apt-get install -y libgstreamer1.0-dev:arm64 libgstreamer-plugins-base1.0-dev:arm64 || true
+          sudo apt-get install -y libgstreamer1.0-dev:arm64 || true
 
       - name: Setup LLVM MinGW
         run: |
@@ -63,17 +60,13 @@ jobs:
       - name: Apply Patches
         run: |
           set +e
-          
           cd wine-staging
           ./staging/patchinstall.py DESTDIR=../wine-src --all --no-autoconf
-          
           cd ../wine-src
           wget -q -O fsr.patch "$GE_PATCH_FSR"
           patch -p1 --fuzz=3 < fsr.patch
-          
           autoreconf -fiv
           ./tools/make_requests
-          
           exit 0
 
       - name: Build Wine Tools
@@ -85,9 +78,8 @@ jobs:
       - name: Configure Wine ARM64
         run: |
           mkdir wine-build && cd wine-build
-          
           export CFLAGS="-O3 -march=armv8.2-a+fp16+dotprod -mtune=cortex-a76 -fno-plt -flto=auto"
-          export CROSSCFLAGS="-O3 -march=armv8.2-a+fp16+dotprod -mtune=cortex-a76 -g0 -mstrict-align -fno-plt -flto=auto"
+          export CROSSCFLAGS="$CFLAGS -g0 -mstrict-align"
           export LDFLAGS="-Wl,-O1 -Wl,--as-needed -flto=auto"
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
           
@@ -110,43 +102,34 @@ jobs:
           cd wine-build
           make -j$(nproc)
 
-      - name: Package WCP (Winlator Format)
+      - name: Package WCP
         run: |
           cd wine-build
-          
           WCP_ROOT="$GITHUB_WORKSPACE/wcp-package"
           mkdir -p "$WCP_ROOT"
-          
           make install DESTDIR="$WCP_ROOT" STRIP=true
           
           cd "$WCP_ROOT"
-          
-          # Создаем симлинк wine -> wine64
           cd bin && ln -sf wine64 wine && cd ..
-          
-          # Права
           find bin -type f -exec chmod +x {} \;
           find lib -name "*.so*" -exec chmod +x {} \;
           
-          # info.json в КОРНЕ архива
           cat > info.json <<'EOF'
           {
-            "name": "Wine-11.1-S8G1-Ludashi",
+            "name": "Wine-11.1-Staging-S8G1",
             "version": "11.1",
             "arch": "arm64",
             "type": "wine",
             "variant": "staging",
             "glibc": "2.35",
-            "target": "ludashi-cmod-2.8.1",
-            "optimization": "armv8.2-a+fp16+dotprod cortex-a76",
+            "optimization": "armv8.2-a+fp16+dotprod",
+            "target": "snapdragon-8plus-gen1",
             "author": "GitHub-CI",
-            "description": "Wine 11.1 Staging + FSR optimized for Snapdragon 8+ Gen 1",
-            "features": ["staging", "fsr", "fsync", "esync", "lto"],
-            "build_date": "2025-01-26"
+            "description": "Wine 11.1 Staging + FSR optimized for S8+G1",
+            "features": ["staging", "fsr", "fsync", "esync", "lto"]
           }
           EOF
           
-          # env.sh опционально
           cat > env.sh <<'EOF'
           #!/bin/sh
           export WINEDEBUG=-all
@@ -157,20 +140,15 @@ jobs:
           EOF
           chmod +x env.sh
           
-          # АРХИВИРУЕМ БЕЗ ВЛОЖЕННЫХ ПАПОК
-          tar -cJf "$GITHUB_WORKSPACE/wine-11.1-s8g1-ludashi.wcp" \
-            --transform='s|^\./||' \
+          tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" \
             -C "$WCP_ROOT" \
             bin lib share info.json env.sh
           
-          echo "=== WCP Structure Verification ==="
-          tar -tJf "$GITHUB_WORKSPACE/wine-11.1-s8g1-ludashi.wcp" | head -25
-          
-          echo "=== File Size ==="
-          ls -lh "$GITHUB_WORKSPACE/wine-11.1-s8g1-ludashi.wcp"
+          echo "=== Structure ==="
+          tar -tJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" | head -20
 
-      - name: Upload Artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: wine-11.1-s8g1-ludashi
-          path: wine-11.1-s8g1-ludashi.wcp
+          name: wine-11.1-staging-s8g1
+          path: wine-11.1-staging-s8g1.wcp
