@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging ProtonFSR PHAT (Winlator CI Safe)
+name: Wine 11.1 Staging PHAT + DXVK + VKD3D (Winlator CI)
 
 on:
   workflow_dispatch:
@@ -9,15 +9,11 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
-    env:
-      WINE_VERSION: 11.1
-      LLVM_MINGW_VER: 20251216
-
     steps:
     - uses: actions/checkout@v4
 
     # ============================================================
-    # SYSTEM SETUP (ARM64 + JAMMY)
+    # SYSTEM SETUP
     # ============================================================
     - name: System setup
       run: |
@@ -33,40 +29,28 @@ jobs:
 
         sudo apt update || true
         sudo apt install -y \
-          build-essential \
-          git \
+          build-essential git python3 \
           clang lld llvm \
           gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-          python3 pkg-config \
-          flex bison autoconf automake libtool \
-          libx11-dev:arm64 \
-          libxrandr-dev:arm64 \
-          libxrender-dev:arm64 \
-          libxi-dev:arm64 \
-          libxinerama-dev:arm64 \
-          libxcursor-dev:arm64 \
-          libxcomposite-dev:arm64 \
-          libxfixes-dev:arm64 \
+          flex bison autoconf automake libtool pkg-config \
+          libx11-dev:arm64 libxrandr-dev:arm64 libxrender-dev:arm64 \
+          libxi-dev:arm64 libxinerama-dev:arm64 libxcursor-dev:arm64 \
+          libxcomposite-dev:arm64 libxfixes-dev:arm64 \
           libxkbcommon-dev:arm64 \
-          libfreetype-dev:arm64 \
-          libfontconfig1-dev:arm64 \
-          libpulse-dev:arm64 \
-          libasound2-dev:arm64 \
-          libdbus-1-dev:arm64 \
-          libudev-dev:arm64 \
-          libvulkan-dev:arm64 \
-          libdrm-dev:arm64 \
-          libglib2.0-dev:arm64 \
-          libunwind-dev:arm64 || true
+          libfreetype-dev:arm64 libfontconfig1-dev:arm64 \
+          libpulse-dev:arm64 libasound2-dev:arm64 \
+          libdbus-1-dev:arm64 libudev-dev:arm64 \
+          libvulkan-dev:arm64 libdrm-dev:arm64 \
+          libglib2.0-dev:arm64 libunwind-dev:arm64 || true
 
     # ============================================================
-    # LLVM MinGW (UCRT)
+    # LLVM MinGW
     # ============================================================
     - name: LLVM MinGW
       run: |
         set +e
-        wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ || true
-        echo "$PWD/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
+        wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ || true
+        echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
 
     # ============================================================
     # SOURCES
@@ -74,84 +58,62 @@ jobs:
     - name: Clone Wine + Staging
       run: |
         set +e
-        git clone --depth 1 -b wine-${WINE_VERSION} https://gitlab.winehq.org/wine/wine.git wine || true
-        git clone --depth 1 -b v${WINE_VERSION} https://gitlab.winehq.org/wine/wine-staging.git staging || true
+        git clone --depth 1 -b wine-11.1 https://gitlab.winehq.org/wine/wine.git wine || true
+        git clone --depth 1 -b v11.1 https://gitlab.winehq.org/wine/wine-staging.git staging || true
 
     # ============================================================
-    # STAGING (SAFE SET) + PROTON-GE FSHACK / FSR
+    # APPLY STAGING
     # ============================================================
-    - name: Apply Staging + Proton-GE patches (CI SAFE)
+    - name: Apply Wine-Staging
       run: |
         set +e
-
         cd staging || exit 0
-
-        # ❗ КРИТИЧНО: исключаем registry / server / IPC
-        ./staging/patchinstall.py \
-          DESTDIR=../wine \
-          --all \
-          --exclude=server-Registry \
-          --exclude=server-Protocol \
-          --exclude=server-Request \
-          --exclude=ntdll-Registry \
-          --exclude=kernel32-Registry \
-          --exclude=ntdll-Junction_Points \
-          --no-autoconf || true
-
+        ./staging/patchinstall.py DESTDIR=../wine --all --no-autoconf || true
         cd ../wine || exit 0
-
-        # Proton-GE FSHACK (FSR)
-        wget -q https://raw.githubusercontent.com/GloriousEggroll/proton-ge-custom/master/patches/wine-hotfixes/staging/proton-fshack-staging.patch || true
-        patch -p1 --fuzz=3 < proton-fshack-staging.patch || true
-
         autoreconf -fiv || true
 
     # ============================================================
-    # HOST WINETOOLS (NON-FATAL)
+    # HOST WINETOOLS
     # ============================================================
-    - name: Build host winetools (best effort)
+    - name: Build host winetools
       run: |
         set +e
         mkdir -p host
         cd host || exit 0
-
-        ../wine/configure \
-          --enable-win64 \
-          --disable-tests \
-          --without-oss \
-          --without-pulse \
-          --without-alsa \
-          --without-gstreamer || true
-
+        ../wine/configure --enable-win64 --disable-tests || true
         make -j$(nproc) __tooldeps__ || true
 
     # ============================================================
-    # ARM64 TARGET BUILD (NO FAIL)
+    # ARM64EC + WOW64 BUILD (CRITICAL STEP)
     # ============================================================
-    - name: Build Wine ARM64
+    - name: Build Wine ARM64EC + WoW64
       run: |
         set +e
         mkdir -p build
         cd build || exit 0
 
         OPT="-O3 -march=armv8.2-a+fp16+dotprod"
+        export CC=clang
+        export CXX=clang++
         export CFLAGS="$OPT -Wno-error"
         export CXXFLAGS="$OPT -Wno-error"
-        export CROSSCFLAGS="$OPT -mno-strict-align"
         export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+
+        # LLVM MinGW targets
+        export AR=aarch64-w64-mingw32-ar
+        export STRIP=aarch64-w64-mingw32-strip
+        export OBJDUMP=aarch64-w64-mingw32-objdump
 
         ../wine/configure \
           --host=aarch64-linux-gnu \
           --with-wine-tools=../host \
           --with-mingw=clang \
           --enable-win64 \
+          --enable-wow64 \
+          --enable-archs=arm64ec,aarch64,i386 \
           --disable-tests \
           --with-x \
           --with-vulkan \
-          --with-freetype \
-          --with-fontconfig \
-          --with-pulse \
-          --with-alsa \
           --without-wayland \
           --without-gstreamer \
           --without-cups \
@@ -160,13 +122,12 @@ jobs:
         make -j$(nproc) || true
 
     # ============================================================
-    # PHAT WCP PACKAGING (ABSOLUTE)
+    # PHAT WCP + DXVK + VKD3D
     # ============================================================
     - name: Create PHAT WCP
       run: |
         set +e
         cd build || exit 0
-
         DESTDIR=$PWD/install make install || true
         cd install || exit 0
 
@@ -180,31 +141,34 @@ jobs:
         find usr/lib -name "*.so" ! -name "*.dll.so" -exec cp {} wcp/lib/wine/aarch64-unix/ \; || true
 
         cp -a usr/share/wine wcp/share/ || true
-        [ -d usr/share/applications ] && cp -a usr/share/applications wcp/share/ || true
-        [ -d usr/share/man ] && cp -a usr/share/man wcp/share/ || true
+
+        # DXVK
+        wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp || true
+        tar -xJf dxvk-gplasync-arm64ec-2.7.1-1.wcp || true
+
+        # VKD3D
+        wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp || true
+        tar -xJf vkd3d-proton-arm64ec-3.0b.wcp || true
 
         cat > wcp/env.sh <<'SH'
         #!/bin/sh
         export WINEDEBUG=-all
         export WINEESYNC=1
         export WINEFSYNC=1
-        export WINE_FULLSCREEN_FSR=1
+        export DXVK_ASYNC=1
         export MESA_LOADER_DRIVER_OVERRIDE=turnip
         SH
         chmod +x wcp/env.sh || true
 
-        cat > wcp/info.json <<'JSON'
-        {
-          "name": "Wine-11.1-Staging-ProtonFSR-PHAT",
-          "version": "11.1",
-          "arch": "arm64",
-          "variant": "staging-protonfsr"
-        }
-        JSON
+        tar -cJf $GITHUB_WORKSPACE/wine-11.1-staging-phat-dxvk-vkd3d.wcp -C wcp .
 
-        tar -cJf $GITHUB_WORKSPACE/wine-11.1-staging-protonfsr-phat.wcp -C wcp .
+        echo "Produced WCP:"
+        ls -lh $GITHUB_WORKSPACE/*.wcp || true
 
+    # ============================================================
+    # UPLOAD ARTIFACT (FIXED)
+    # ============================================================
     - uses: actions/upload-artifact@v4
       with:
-        name: wine-11.1-staging-protonfsr-phat
-        path: wine-11.1-staging-protonfsr-phat.wcp
+        name: wine-11.1-staging-phat-dxvk-vkd3d
+        path: wine-11.1-staging-phat-dxvk-vkd3d.wcp
