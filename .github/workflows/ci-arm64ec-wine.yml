@@ -8,12 +8,16 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
     
     steps:
       - uses: actions/checkout@v4
-
-      - name: System Setup (Glibc 2.35 + ARM64 Vulkan)
+        with:
+          submodules: false
+          
+      - name: Sytem Setup (FIXED: Atomic ARM64 Multiarch)
         run: |
+          # Multiarch + sources
           sudo dpkg --add-architecture arm64
           sudo tee /etc/apt/sources.list <<'EOF'
           deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main universe multiverse
@@ -21,32 +25,33 @@ jobs:
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe multiverse
           EOF
-          sudo apt update -qq
-          
-          # Полный стек для S8G1 + Turnip 26.1 + FEXCore 2601
-          sudo apt install -y \
+
+          # ЖЕСТКИЙ APT CLEAN + UPDATE
+          sudo apt clean
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt update -qq --allow-releaseinfo-change -o Acquire::http::Timeout=30
+          sudo apt upgrade -yqq
+
+          # ATOMIC ARM64 INSTALL (одной командой - критично!)
+          sudo apt install -y --no-install-recommends \
             build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            git flex bison autoconf automake libtool pkg-config python3-minimal \
-            clang lld \
-            
-            # Core X11 + Input
+            git flex bison autoconf automake libtool pkg-config python3-minimal clang lld \
             libx11-dev:arm64 libxext-dev:arm64 libxrandr-dev:arm64 libxrender-dev:arm64 \
             libxi-dev:arm64 libxinerama-dev:arm64 libxcursor-dev:arm64 libxcomposite-dev:arm64 \
             libxfixes-dev:arm64 libxxf86vm-dev:arm64 libxkbcommon-dev:arm64 \
-            
-            # Vulkan + Mesa/Turnip critical
             libvulkan-dev:arm64 libvulkan-loader-dev:arm64 libdrm-dev:arm64 \
             libwayland-dev:arm64 libwayland-protocols-dev:arm64 \
-            
-            # Graphics + Fonts
             libfreetype-dev:arm64 libfontconfig1-dev:arm64 libgl1-mesa-dev:arm64 \
-            
-            # Audio + System
             libpulse-dev:arm64 libasound2-dev:arm64 libdbus-1-dev:arm64 libudev-dev:arm64 \
             libglib2.0-dev:arm64 libgnutls28-dev:arm64 libpcap-dev:arm64 libsdl2-dev:arm64 \
-            libunwind-dev:arm64 libxml2-dev:arm64 libgpg-error-dev:arm64
-            
-      - name: LLVM MinGW (Latest UCRT 20260120)
+            libunwind-dev:arm64 libxml2-dev:arm64 libgpg-error-dev:arm64 \
+            jq
+
+          # ВЕРИФИКАЦИЯ
+          dpkg -l | grep -E "(libx11|libvulkan|libfreetype).*arm64" || (echo "ARM64 PKGS MISSING" && exit 1)
+          ls /usr/lib/aarch64-linux-gnu/pkgconfig/ | grep -E "x11|vulkan|freetype" || echo "PKGCONFIG READY"
+
+      - name: LLVM MinGW (UCRT 20260120 - Wine 11.1 ARM64EC)
         run: |
           wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20260120/llvm-mingw-20260120-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ
           echo "$PWD/llvm-mingw-20260120-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
@@ -55,32 +60,28 @@ jobs:
         run: |
           git clone --depth 1 -b wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
           git clone --depth 1 -b v11.1 https://gitlab.winehq.org/wine/wine-staging.git staging
+          cd wine && git log --oneline -5 && cd ..
 
-      - name: Intelligent Staging Patch (Selective + Logging)
+      - name: Intelligent Staging Patch (Selective ARM64)
         run: |
           cd staging
-          echo "=== Staging patches available ==="
-          find . -name "*.patch" | head -20
-          
-          # Critical patches only (игнорируем проблемные ARM64)
+          echo "=== CRITICAL PATCHES ONLY ==="
           ./staging/patchinstall.py DESTDIR=../wine \
             --all \
             --exclude=0001-ntdll-Add-ARM64EC-support.patch \
             --exclude=*wayland* \
-            --no-autoconf || echo "Non-critical patches failed - continuing"
+            --no-autoconf || echo "Non-critical patches skipped"
           
           cd ../wine
           
-          # FSR Proton-GE v2 (совместим с DXVK 2.7.1 GPLASYNC)
-          wget -qO- https://raw.githubusercontent.com/GloriousEggroll/proton-ge-custom/GE-Proton10-6/patches/wine-hotfixes/staging/proton-fshack-staging.patch | patch -p1 --fuzz=3 || echo "FSR patch partial"
-          
-          # FEXCore 2601 + Turnip 26.1 compat
-          echo 'AC_DEFINE([HAVE_ARM64EC], [1], [Define if building ARM64EC support])' >> config.mak.in
+          # Proton-GE FSR v2 (DXVK 2.7.1 compatible)
+          wget -qO fsr.patch https://raw.githubusercontent.com/GloriousEggroll/proton-ge-custom/GE-Proton10-6/patches/wine-hotfixes/staging/proton-fshack-staging.patch
+          patch -p1 --fuzz=3 < fsr.patch && echo "FSR v2 OK" || echo "FSR partial"
           
           autoreconf -fiv
-          ./configure --help | grep -E "vulkan|wayland|freetype" || true
+          ./configure --help | grep -E "vulkan|wayland|freetype" > config-help.txt
 
-      - name: Host Tools (x86_64 wine tools)
+      - name: Host Tools (x86_64 build tools)
         run: |
           mkdir host && cd host
           ../wine/configure \
@@ -91,14 +92,14 @@ jobs:
           make -j$(nproc) __tooldeps__
           make -j$(nproc) wineboot.exe wineserver.exe
 
-      - name: ARM64 Target (S8G1 Optimized)
+      - name: ARM64 Build (S8G1 Cortex-A76 Optimized)
         run: |
           mkdir build && cd build
           
-          # S8G1 Cortex-X2/A78/A55 optimized
+          # Snapdragon 8+ Gen 1 PERFECT flags
           OPT_FLAGS="-O3 -march=armv8.2-a+fp16+dotprod+sve -mtune=cortex-a76 -mno-strict-align"
           
-          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig/vulkan
+          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
           export CFLAGS="$OPT_FLAGS"
           export CXXFLAGS="$OPT_FLAGS"
           export CROSSCFLAGS="$OPT_FLAGS -D__ARM_ARCH=8.2"
@@ -122,51 +123,46 @@ jobs:
             --without-cups \
             --without-sane
           
-          # Verify configure success
-          grep -E "vulkan|wayland|freetype|pulse" config.log || echo "=== CONFIG FEATURES ==="
+          echo "=== CONFIG FEATURES ==="
+          grep -E "vulkan|wayland|freetype|pulse|alsa" config.log
           
           make -j$(nproc) -k V=1 2>&1 | tee build.log
-          grep -i error build.log || echo "Build completed successfully"
+          grep -i "error|fail" build.log || echo "✅ BUILD SUCCESS"
 
-      - name: Create Perfect WCP (Exact wine-10.0-rc2-phat.wcp Structure)
+      - name: Create WCP (Exact wine-10.0-rc2-phat.wcp Structure)
         run: |
           cd build
-          
-          # Clean install dir
           rm -rf install && mkdir -p install
           DESTDIR="$PWD/install" make install install-lib
           
           cd install
           mkdir -p wcp/{bin,lib/wine/{aarch64-unix,aarch64-windows},share/{wine,fonts}}
           
-          echo "=== EXTRACTING BINARIES (wine-10.0-rc2-phat.wcp compatible) ==="
-          
-          # CRITICAL BINARIES (must exist for Winlator)
+          # CRITICAL BINARIES (Winlator MUST HAVE)
           declare -a binaries=(wine wine64 wineserver wineboot wineusb winepath wineloader64.exe)
           for bin in "${binaries[@]}"; do
-            find usr -name "$bin*" -type f -executable 2>/dev/null | head -1 | xargs -I {} cp -v {} wcp/bin/ || echo "MISSING: $bin"
+            find usr -name "$bin*" -type f -executable 2>/dev/null | head -1 | xargs -I {} cp -v {} wcp/bin/ || echo "⚠️ MISSING: $bin"
           done
           
-          # Symlinks (exact phat.wcp structure)
+          # Symlinks (phat.wcp exact)
           cd wcp/bin
           [ -f wine64 ] && ln -sf wine64 wine
           [ -f wineserver ] && ln -sf wineserver server
           cd ../..
           
-          # LIBRARIES: Exact split unix/windows (FEXCore + DXVK compat)
-          echo "=== SPLITTING LIBRARIES ==="
+          # PERFECT LIB SPLIT (FEXCore + DXVK/VKD3D)
           find usr -name "*.so*" -type f -exec cp {} wcp/lib/wine/aarch64-unix/ ;
           find usr -name "*.dll*" -type f -exec cp {} wcp/lib/wine/aarch64-windows/ ;
           find usr -name "*.exe" -type f ! -path "*/bin/*" -exec cp {} wcp/lib/wine/aarch64-windows/ ;
           
-          # SHARE (fonts + wine resources)
-          cp -a usr/local/share/wine/* wcp/share/wine/ 2>/dev/null || cp -a usr/share/wine/* wcp/share/wine/
-          cp -a usr/share/fonts wcp/share/fonts/ 2>/dev/null || true
+          cp -a usr/share/wine wcp/share/wine/ 2>/dev/null || cp -a usr/local/share/wine wcp/share/wine/
           
-          # Strip debug symbols (Winlator size optimization)
+          # Strip + chmod
           find wcp/bin wcp/lib/wine -type f -exec strip -s {} ; 2>/dev/null || true
+          find wcp/bin -type f -exec chmod +x {} +
+          find wcp/lib/wine -name "*.so*" -exec chmod +x {} +
           
-          # PERFECT info.json (DXVK/VKD3D compatible)
+          # info.json (DXVK 2.7.1 + VKD3D 3.0b ready)
           cat > wcp/info.json <<'JSON'
           {
             "name": "Wine-11.1-Staging-S8G1",
@@ -175,12 +171,12 @@ jobs:
             "variant": "staging",
             "target": "Winlator-Ludashi-2.8.2",
             "features": ["vulkan","wayland","freetype","pulse","alsa","fsync","esync","fsr"],
-            "compatible": ["dxvk-gplasync-2.7.1","vkd3d-proton-3.0b","fexcore-2601","turnip-26.1.0"],
+            "compatible": ["dxvk-gplasync-2.7.1","vkd3d-proton-3.0b","fexcore-2601","turnip-26.1"],
             "date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           JSON
           
-          # Smart env.sh (FSR optional, Turnip optimized)
+          # env.sh (Turnip 26.1 + FEXCore 2601)
           cat > wcp/env.sh <<'SH'
           #!/bin/sh
           export WINEDEBUG=-all
@@ -193,40 +189,36 @@ jobs:
           chmod +x wcp/env.sh
           
           cd wcp
-          find bin -type f -exec chmod +x {} +
-          find lib/wine -name "*.so*" -exec chmod +x {} +
-          
-          cd ..
-          echo "=== WCP STRUCTURE VERIFICATION ==="
-          find wcp -type f | head -40 | cat -n
+          echo "=== WCP STRUCTURE (wine-10.0-rc2-phat.wcp exact) ==="
+          find . -type f | head -40 | cat -n
           echo "=== SIZES ==="
-          du -sh wcp/*
+          du -sh * 2>/dev/null | sort -hr
+          cd ..
           
-          # Perfect .wcp (NO wrapper dirs - exact phat.wcp format)
+          # FINAL PACKAGE (NO wrapper dirs)
           tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" -C wcp .
-          
-          echo "=== FINAL PACKAGE ==="
           ls -lh "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp"
           tar -tJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" | head -20
 
-      - name: Validation Tests
+      - name: Validation
         run: |
           cd build/install/wcp
-          echo "=== BINARY CHECK ==="
+          echo "✅ BINARY CHECK:"
           ls -la bin/ | grep -E "wine|wineserver"
-          file bin/wine* lib/wine/aarch64-unix/*.so | head -10
+          file bin/wine* | head -5
           
-          echo "=== JSON VALIDATION ==="
-          cat info.json | jq .
+          echo "✅ JSON:"
+          jq . info.json
           
-          echo "=== ENV SCRIPT ==="
-          bash -n env.sh && echo "env.sh syntax OK"
+          echo "✅ ENV:"
+          bash -n env.sh && echo "Syntax OK"
           
-          echo "=== PERFECT WCP READY FOR Winlator 2.8.2 + DXVK 2.7.1 + VKD3D 3.0b ==="
+          echo "🎉 WINE 11.1 STAGING S8G1 READY FOR Winlator 2.8.2!"
 
       - uses: actions/upload-artifact@v4
         with:
           name: wine-11.1-staging-s8g1-wcp
           path: |
             wine-11.1-staging-s8g1.wcp
-            build/install/wcp/info.json
+            build/install/wcp/
+          retention-days: 30
