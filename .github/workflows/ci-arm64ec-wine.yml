@@ -19,12 +19,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Multiarch for Glibc 2.35
+      - name: Setup Multiarch
         run: |
           sudo dpkg --add-architecture arm64
           sudo rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*
           
-          # Ubuntu 22.04 = Glibc 2.35 (совместимость с Ludashi CMOD 2.8.1)
           cat <<EOF | sudo tee /etc/apt/sources.list
           deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
           deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
@@ -43,8 +42,11 @@ jobs:
             libxrandr-dev:arm64 libxinerama-dev:arm64 libxcursor-dev:arm64 \
             libxcomposite-dev:arm64 libxfixes-dev:arm64 libxxf86vm-dev:arm64 \
             libvulkan-dev:arm64 libxkbcommon-dev:arm64 libsdl2-dev:arm64 \
-            libudev-dev:arm64 libgstreamer1.0-dev:arm64 libgnutls28-dev:arm64 \
-            libpcap-dev:arm64 libpulse-dev:arm64 libdbus-1-dev:arm64 libfontconfig1-dev:arm64
+            libudev-dev:arm64 libgnutls28-dev:arm64 libpcap-dev:arm64 \
+            libpulse-dev:arm64 libdbus-1-dev:arm64 libfontconfig1-dev:arm64 \
+            libunwind-dev:arm64
+          
+          sudo apt-get install -y libgstreamer1.0-dev:arm64 libgstreamer-plugins-base1.0-dev:arm64 || true
 
       - name: Setup LLVM MinGW
         run: |
@@ -69,7 +71,7 @@ jobs:
           autoreconf -fiv || true
           ./tools/make_requests || true
 
-      - name: Build Wine Tools (Host)
+      - name: Build Wine Tools
         run: |
           mkdir wine-tools && cd wine-tools
           ../wine-src/configure --enable-win64 --with-freetype --without-wayland --without-vulkan
@@ -96,25 +98,25 @@ jobs:
             --without-gstreamer \
             --without-{cups,sane,oss}
 
-      - name: Build & Package for Ludashi
+      - name: Build Wine
         run: |
           cd wine-build
           make -j$(nproc)
-          
+
+      - name: Package for Ludashi
+        run: |
+          cd wine-build
           INSTALL_ROOT="$(readlink -f ../ludashi-wine)"
           mkdir -p "$INSTALL_ROOT"
           make install DESTDIR="$INSTALL_ROOT" STRIP=true
           
           cd "$INSTALL_ROOT/opt/wine"
           
-          # Симлинк wine -> wine64
           cd bin && ln -sf wine64 wine && cd ..
           
-          # Права
           find bin -type f -exec chmod +x {} \;
           find lib -name "*.so*" -exec chmod +x {} \;
           
-          # info.json для Ludashi
           cat > info.json <<'EOF'
           {
             "name": "Wine-11.1-Staging-Ludashi",
@@ -125,13 +127,12 @@ jobs:
             "glibc": "2.35",
             "target": "ludashi-cmod-2.8.1",
             "author": "GitHub-CI",
-            "description": "Wine 11.1 Staging + FSR for Ludashi CMOD 2.8.1 (Glibc 2.35)",
+            "description": "Wine 11.1 Staging + FSR for Ludashi CMOD 2.8.1",
             "features": ["staging", "fsr", "fsync", "esync"],
             "date": "2025-01-26"
           }
           EOF
           
-          # env.sh
           cat > env.sh <<'EOF'
           #!/bin/sh
           export WINEDEBUG=-all
@@ -142,14 +143,13 @@ jobs:
           EOF
           chmod +x env.sh
           
-          # Создаем .wcp архив БЕЗ вложенной папки
           tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-ludashi.wcp" \
             --transform='s|^\./||' \
             -C . \
             bin lib share info.json env.sh
           
-          echo "=== WCP Structure Check ==="
-          tar -tJf "$GITHUB_WORKSPACE/wine-11.1-staging-ludashi.wcp" | head -15
+          echo "=== Archive Contents ==="
+          tar -tJf "$GITHUB_WORKSPACE/wine-11.1-staging-ludashi.wcp" | head -20
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
