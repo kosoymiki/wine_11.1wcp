@@ -138,7 +138,7 @@ jobs:
             file "$1" 2>/dev/null | grep -q "aarch64" && 
             cp "$1" ../image/Wine-11.1-Staging-S8G1/bin/ 2>/dev/null &&
             echo "BIN: $(basename "$1")"
-          ' _ {} ; 2>/dev/null || true
+          ' _ {} \\; 2>/dev/null || true
           
           cd ../image/Wine-11.1-Staging-S8G1/bin
           
