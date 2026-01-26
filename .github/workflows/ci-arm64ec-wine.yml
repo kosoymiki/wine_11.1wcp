@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging PHAT + DXVK + VKD3D (Winlator CI)
+name: Wine 11.1 Staging PHAT + DXVK + VKD3D ARM64EC (Winlator Final)
 
 on:
   workflow_dispatch:
@@ -47,8 +47,7 @@ jobs:
     # LLVM MinGW
     # ============================================================
     - name: LLVM MinGW
-      run: |
-        set +e
+      run: |        set +e
         wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ || true
         echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
 
@@ -84,7 +83,7 @@ jobs:
         make -j$(nproc) __tooldeps__ || true
 
     # ============================================================
-    # ARM64EC + WOW64 BUILD (CRITICAL STEP)
+    # ARM64EC + WOW64 BUILD (CRITICAL STEP - FIXED)
     # ============================================================
     - name: Build Wine ARM64EC + WoW64
       run: |
@@ -92,20 +91,23 @@ jobs:
         mkdir -p build
         cd build || exit 0
 
+        # Установка переменных окружения для кросскомпиляции PE с помощью llvm-mingw
+        export CC=aarch64-w64-mingw32-clang
+        export CXX=aarch64-w64-mingw32-clang++
+        export DLLTOOL=aarch64-w64-mingw32-dlltool
+        export LD=lld
+        export AR=aarch64-w64-mingw32-ar        export STRIP=aarch64-w64-mingw32-strip
+        export OBJDUMP=aarch64-w64-mingw32-objdump
+        export RC=aarch64-w64-mingw32-windres
+
         OPT="-O3 -march=armv8.2-a+fp16+dotprod"
-        export CC=clang
-        export CXX=clang++
         export CFLAGS="$OPT -Wno-error"
         export CXXFLAGS="$OPT -Wno-error"
         export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
 
-        # LLVM MinGW targets
-        export AR=aarch64-w64-mingw32-ar
-        export STRIP=aarch64-w64-mingw32-strip
-        export OBJDUMP=aarch64-w64-mingw32-objdump
-
+        # Убираем --host=aarch64-linux-gnu, т.к. мы кросскомпилируем PE
+        # Указываем mingw, и Wine должен понять, что это для PE
         ../wine/configure \
-          --host=aarch64-linux-gnu \
           --with-wine-tools=../host \
           --with-mingw=clang \
           --enable-win64 \
@@ -119,56 +121,114 @@ jobs:
           --without-cups \
           --without-sane || true
 
+        # Проверим, был ли создан Makefile
+        if [ ! -f "Makefile" ]; then
+            echo "Configure failed, no Makefile generated."
+            # Показать последние строки config.log для диагностики
+            echo "=== Contents of config.log ==="
+            cat config.log || true
+            echo "=============================="
+            exit 1
+        fi
+
         make -j$(nproc) || true
 
     # ============================================================
-    # PHAT WCP + DXVK + VKD3D
+    # PHAT WCP + DXVK + VKD3D INTEGRATION
     # ============================================================
     - name: Create PHAT WCP
       run: |
         set +e
         cd build || exit 0
-        DESTDIR=$PWD/install make install || true
+        # Убедимся, что make install выполняется после успешной сборки
+        if [ -f "Makefile" ]; then
+            DESTDIR=$PWD/install make install || true
+        else
+            echo "No Makefile found, skipping make install."
+        fi
         cd install || exit 0
 
         mkdir -p wcp/{bin,lib/wine/{aarch64-unix,aarch64-windows},share}
 
-        cp usr/bin/* wcp/bin/ || true
-        cd wcp/bin && ln -sf wine64 wine && cd ../..
+        # Копирование основных файлов Wine
+        cp -r usr/bin/* wcp/bin/ 2>/dev/null || true
+        cd wcp/bin && ln -sf wine64 wine && cd ../.. # Создание симлинка для wine
 
-        find usr/lib -name "*.dll.so" -exec cp {} wcp/lib/wine/aarch64-windows/ \; || true
-        find usr/lib -name "*.exe.so" -exec cp {} wcp/lib/wine/aarch64-windows/ \; || true
-        find usr/lib -name "*.so" ! -name "*.dll.so" -exec cp {} wcp/lib/wine/aarch64-unix/ \; || true
+        # Копирование DLL/SO файлов
+        find usr/lib -name "*.dll.so" -exec cp {} wcp/lib/wine/aarch64-windows/ \; 2>/dev/null || true
+        find usr/lib -name "*.exe.so" -exec cp {} wcp/lib/wine/aarch64-windows/ \; 2>/dev/null || true
+        find usr/lib -name "*.so" ! -name "*.dll.so" -exec cp {} wcp/lib/wine/aarch64-unix/ \; 2>/dev/null || true
 
-        cp -a usr/share/wine wcp/share/ || true
+        # Копирование файлов ресурсов
+        cp -r usr/share/wine wcp/share/ 2>/dev/null || true
+        [ -d usr/share/applications ] && cp -r usr/share/applications wcp/share/ || true
+        [ -d usr/share/man ] && cp -r usr/share/man wcp/share/ || true
 
-        # DXVK
+        # -------------------------------
+        # ИНТЕГРАЦИЯ DXVK WCP
+        # -------------------------------
+        echo "Downloading DXVK WCP..."
         wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp || true
-        tar -xJf dxvk-gplasync-arm64ec-2.7.1-1.wcp || true
+        if [ -f "dxvk-gplasync-arm64ec-2.7.1-1.wcp" ]; then
+            mkdir -p temp_dxvk
+            tar -xJf dxvk-gplasync-arm64ec-2.7.1-1.wcp -C temp_dxvk || true
+            # Копируем содержимое DXVK внутрь основного wcp
+            cp -r temp_dxvk/wcp/* wcp/ || true
+            rm -rf temp_dxvk
+        else
+            echo "DXVK WCP download failed or file not found."
+        fi
 
-        # VKD3D
+        # -------------------------------
+        # ИНТЕГРАЦИЯ VKD3D WCP
+        # -------------------------------
+        echo "Downloading VKD3D WCP..."
         wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp || true
-        tar -xJf vkd3d-proton-arm64ec-3.0b.wcp || true
+        if [ -f "vkd3d-proton-arm64ec-3.0b.wcp" ]; then
+            mkdir -p temp_vkd3d
+            tar -xJf vkd3d-proton-arm64ec-3.0b.wcp -C temp_vkd3d || true
+            # Копируем содержимое VKD3D внутрь основного wcp
+            cp -r temp_vkd3d/wcp/* wcp/ || true
+            rm -rf temp_vkd3d
+        else
+            echo "VKD3D WCP download failed or file not found."
+        fi
 
-        cat > wcp/env.sh <<'SH'
+        # -------------------------------        # СОЗДАНИЕ env.sh и info.json
+        # -------------------------------
+        cat > wcp/env.sh <<'EOF'
         #!/bin/sh
         export WINEDEBUG=-all
         export WINEESYNC=1
         export WINEFSYNC=1
+        export WINEARCH=win64
         export DXVK_ASYNC=1
         export MESA_LOADER_DRIVER_OVERRIDE=turnip
-        SH
+        EOF
         chmod +x wcp/env.sh || true
 
-        tar -cJf $GITHUB_WORKSPACE/wine-11.1-staging-phat-dxvk-vkd3d.wcp -C wcp .
+        cat > wcp/info.json <<'EOF'
+        {
+        "name": "Wine-11.1-Staging-PHAT-DXVK-VKD3D-ARM64EC",
+        "version": "11.1",
+        "arch": "arm64",
+        "variant": "winlator-ultimate-arm64ec"
+        }
+        EOF
 
-        echo "Produced WCP:"
+        # -------------------------------
+        # УПАКОВКА ИТОГОВОГО WCP
+        # -------------------------------
+        echo "Creating final WCP archive..."
+        tar -cJf $GITHUB_WORKSPACE/wine-11.1-staging-phat-dxvk-vkd3d-arm64ec.wcp -C wcp .
+
+        echo "Final WCP created:"
         ls -lh $GITHUB_WORKSPACE/*.wcp || true
 
     # ============================================================
-    # UPLOAD ARTIFACT (FIXED)
+    # UPLOAD ARTIFACT (CORRECTED)
     # ============================================================
     - uses: actions/upload-artifact@v4
       with:
-        name: wine-11.1-staging-phat-dxvk-vkd3d
-        path: wine-11.1-staging-phat-dxvk-vkd3d.wcp
+        name: wine-11.1-staging-phat-dxvk-vkd3d-arm64ec
+        path: wine-11.1-staging-phat-dxvk-vkd3d-arm64ec.wcp
