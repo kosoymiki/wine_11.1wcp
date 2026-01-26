@@ -1,22 +1,29 @@
-name: Wine 11.1 Staging PHAT ARM64EC (Winlator Safe)
+name: Wine 11.1 Staging ProtonFSR PHAT (Winlator CI Safe)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
+    env:
+      WINE_VERSION: 11.1
+      LLVM_MINGW_VER: 20251216
+
     steps:
     - uses: actions/checkout@v4
 
-    # ------------------------------------------------------------
+    # ============================================================
     # SYSTEM SETUP (ARM64 + JAMMY)
-    # ------------------------------------------------------------
+    # ============================================================
     - name: System setup
       run: |
         set +e
         sudo dpkg --add-architecture arm64 || true
+
         sudo tee /etc/apt/sources.list <<'EOF'
         deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main universe multiverse
         deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main universe multiverse
@@ -27,71 +34,100 @@ jobs:
         sudo apt update || true
         sudo apt install -y \
           build-essential \
+          git \
           clang lld llvm \
           gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-          git python3 pkg-config \
+          python3 pkg-config \
           flex bison autoconf automake libtool \
-          libx11-dev:arm64 libxrandr-dev:arm64 \
-          libxrender-dev:arm64 libxi-dev:arm64 \
-          libxinerama-dev:arm64 libxcursor-dev:arm64 \
-          libxcomposite-dev:arm64 libxfixes-dev:arm64 \
+          libx11-dev:arm64 \
+          libxrandr-dev:arm64 \
+          libxrender-dev:arm64 \
+          libxi-dev:arm64 \
+          libxinerama-dev:arm64 \
+          libxcursor-dev:arm64 \
+          libxcomposite-dev:arm64 \
+          libxfixes-dev:arm64 \
           libxkbcommon-dev:arm64 \
-          libfreetype-dev:arm64 libfontconfig1-dev:arm64 \
-          libpulse-dev:arm64 libasound2-dev:arm64 \
-          libdbus-1-dev:arm64 libudev-dev:arm64 \
-          libvulkan-dev:arm64 libdrm-dev:arm64 \
+          libfreetype-dev:arm64 \
+          libfontconfig1-dev:arm64 \
+          libpulse-dev:arm64 \
+          libasound2-dev:arm64 \
+          libdbus-1-dev:arm64 \
+          libudev-dev:arm64 \
+          libvulkan-dev:arm64 \
+          libdrm-dev:arm64 \
           libglib2.0-dev:arm64 \
           libunwind-dev:arm64 || true
 
-    # ------------------------------------------------------------
+    # ============================================================
     # LLVM MinGW (UCRT)
-    # ------------------------------------------------------------
+    # ============================================================
     - name: LLVM MinGW
       run: |
         set +e
-        wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ || true
-        echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
+        wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ || true
+        echo "$PWD/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
 
-    # ------------------------------------------------------------
+    # ============================================================
     # SOURCES
-    # ------------------------------------------------------------
+    # ============================================================
     - name: Clone Wine + Staging
       run: |
         set +e
-        git clone --depth 1 -b wine-11.1 https://gitlab.winehq.org/wine/wine.git || true
-        git clone --depth 1 -b v11.1 https://gitlab.winehq.org/wine/wine-staging.git staging || true
+        git clone --depth 1 -b wine-${WINE_VERSION} https://gitlab.winehq.org/wine/wine.git wine || true
+        git clone --depth 1 -b v${WINE_VERSION} https://gitlab.winehq.org/wine/wine-staging.git staging || true
 
-    # ------------------------------------------------------------
-    # STAGING + PROTON GE (FSR / FSHACK)
-    # ------------------------------------------------------------
-    - name: Apply Staging + Proton GE patches (SAFE)
+    # ============================================================
+    # STAGING (SAFE SET) + PROTON-GE FSHACK / FSR
+    # ============================================================
+    - name: Apply Staging + Proton-GE patches (CI SAFE)
       run: |
         set +e
 
         cd staging || exit 0
-        ./staging/patchinstall.py DESTDIR=../wine --all --no-autoconf || true
+
+        # ❗ КРИТИЧНО: исключаем registry / server / IPC
+        ./staging/patchinstall.py \
+          DESTDIR=../wine \
+          --all \
+          --exclude=server-Registry \
+          --exclude=server-Protocol \
+          --exclude=server-Request \
+          --exclude=ntdll-Registry \
+          --exclude=kernel32-Registry \
+          --exclude=ntdll-Junction_Points \
+          --no-autoconf || true
+
         cd ../wine || exit 0
 
-        # Proton GE FSR / fshack
+        # Proton-GE FSHACK (FSR)
         wget -q https://raw.githubusercontent.com/GloriousEggroll/proton-ge-custom/master/patches/wine-hotfixes/staging/proton-fshack-staging.patch || true
         patch -p1 --fuzz=3 < proton-fshack-staging.patch || true
 
         autoreconf -fiv || true
 
-    # ------------------------------------------------------------
-    # HOST TOOLS (BEST EFFORT)
-    # ------------------------------------------------------------
-    - name: Build host winetools (NON-FATAL)
+    # ============================================================
+    # HOST WINETOOLS (NON-FATAL)
+    # ============================================================
+    - name: Build host winetools (best effort)
       run: |
         set +e
         mkdir -p host
         cd host || exit 0
-        ../wine/configure --enable-win64 --disable-tests || true
+
+        ../wine/configure \
+          --enable-win64 \
+          --disable-tests \
+          --without-oss \
+          --without-pulse \
+          --without-alsa \
+          --without-gstreamer || true
+
         make -j$(nproc) __tooldeps__ || true
 
-    # ------------------------------------------------------------
+    # ============================================================
     # ARM64 TARGET BUILD (NO FAIL)
-    # ------------------------------------------------------------
+    # ============================================================
     - name: Build Wine ARM64
       run: |
         set +e
@@ -99,8 +135,8 @@ jobs:
         cd build || exit 0
 
         OPT="-O3 -march=armv8.2-a+fp16+dotprod"
-        export CFLAGS="$OPT"
-        export CXXFLAGS="$OPT"
+        export CFLAGS="$OPT -Wno-error"
+        export CXXFLAGS="$OPT -Wno-error"
         export CROSSCFLAGS="$OPT -mno-strict-align"
         export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
 
@@ -123,10 +159,10 @@ jobs:
 
         make -j$(nproc) || true
 
-    # ------------------------------------------------------------
-    # PHAT WCP ASSEMBLY (ABSOLUTE)
-    # ------------------------------------------------------------
-    - name: Create PHAT WCP (NO FAIL)
+    # ============================================================
+    # PHAT WCP PACKAGING (ABSOLUTE)
+    # ============================================================
+    - name: Create PHAT WCP
       run: |
         set +e
         cd build || exit 0
@@ -162,7 +198,7 @@ jobs:
           "name": "Wine-11.1-Staging-ProtonFSR-PHAT",
           "version": "11.1",
           "arch": "arm64",
-          "variant": "staging-proton"
+          "variant": "staging-protonfsr"
         }
         JSON
 
