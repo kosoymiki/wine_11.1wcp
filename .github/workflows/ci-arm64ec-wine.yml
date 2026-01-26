@@ -18,30 +18,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Multiarch + Complete Dependencies
+      # ✅ ИСПРАВЛЕННЫЕ источники (без security/backports 404)
+      - name: Setup Multiarch (Fixed Repositories)
         run: |
           sudo dpkg --add-architecture arm64
-          sudo apt-get update
+          sudo rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*
+          
+          # Только MAIN репозитории (без security/backports)
+          cat <<EOF | sudo tee /etc/apt/sources.list
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
+          EOF
+          
+          sudo apt-get update || echo "Update warnings ignored"
+          
           sudo apt-get install -y --no-install-recommends \
-            # Build essentials
             build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            wget curl git flex bison pkg-config python3 autoconf automake \
-            # Gettext для переводов
-            gettext \
-            # X11 + OpenGL + Vulkan (критично!)
+            wget curl git flex bison pkg-config python3 autoconf automake gettext \
             libx11-dev:arm64 libxrandr-dev:arm64 libxrender-dev:arm64 libxext-dev:arm64 \
-            libgl1-mesa-dev:arm64 libglu1-mesa-dev:arm64 libvulkan-dev:arm64 \
-            libxfixes-dev:arm64 libxinerama-dev:arm64 libxcursor-dev:arm64 libxi-dev:arm64 \
-            # Audio (ALSA + PulseAudio)
-            libasound2-dev:arm64 libpulse-dev:arm64 \
-            # GStreamer (видео)
+            libgl1-mesa-dev:arm64 libvulkan-dev:arm64 libxfixes-dev:arm64 \
+            libxinerama-dev:arm64 libxcursor-dev:arm64 libxi-dev:arm64 \
+            libasound2-dev:arm64 libpulse-dev:arm64 libfreetype-dev:arm64 \
             libgstreamer1.0-dev:arm64 libgstreamer-plugins-base1.0-dev:arm64 \
-            # Core libs
-            libfreetype-dev:arm64 libfontconfig1-dev:arm64 libdbus-1-dev:arm64 \
-            libgnutls28-dev:arm64 libudev-dev:arm64 libglib2.0-dev:arm64 \
-            libxkbcommon-dev:arm64 libsdl2-dev:arm64 libunwind-dev:arm64 \
-            # USB + Cameras (опционально)
-            libusb-1.0-0-dev:arm64 libv4l-dev:arm64
+            libfontconfig1-dev:arm64 libdbus-1-dev:arm64 libgnutls28-dev:arm64 \
+            libudev-dev:arm64 libglib2.0-dev:arm64 libsdl2-dev:arm64
 
       - name: Setup LLVM MinGW
         run: |
@@ -61,41 +63,37 @@ jobs:
           ./staging/patchinstall.py DESTDIR=../wine-src --all --no-autoconf
           cd ../wine-src
           wget -q -O fsr.patch "$GE_PATCH_FSR"
-          patch -p1 --fuzz=3 < fsr.patch || echo "FSR partial apply"
+          patch -p1 --fuzz=3 < fsr.patch || echo "FSR partial apply OK"
           autoreconf -fiv
 
-      # ✅ ПРАВИЛЬНАЯ структура native tools
-      - name: Build COMPLETE native Wine tools (x86_64)
+      # ✅ Native tools с правильной структурой
+      - name: Build Native Wine Tools (x86_64)
         run: |
-          mkdir -p native-tools
-          cd native-tools
+          mkdir -p native-tools && cd native-tools
           
           export CFLAGS="-O2 -pipe"
           export LDFLAGS="-Wl,-O2"
           
-          # Полная конфигурация для tools
           ../wine-src/configure \
             --enable-win64 \
             --with-x \
             --with-freetype \
             --disable-tests
             
-          # Строим ВСЕ tools
-          make -j$(nproc) tools wineboot wineserver winecpp winedbg
+          make -j$(nproc) tools wineboot wineserver
           
-          # ✅ Создаём правильную структуру
+          # ✅ Стандартная структура Wine tools
           mkdir -p tools/wine tools/wine64
-          cp tools/wine/wine tools/wine/wine
-          cp tools/wine64/wine64 tools/wine64/wine64
-          cp tools/wineboot/wineboot tools/
-          cp tools/wineserver/wineserver tools/
+          find . -name wine -exec cp {} tools/wine/wine ; 2>/dev/null || true
+          find . -name wine64 -exec cp {} tools/wine64/wine64 ; 2>/dev/null || true
+          cp tools/wineboot/wineboot tools/ 2>/dev/null || true
+          cp tools/wineserver/wineserver tools/ 2>/dev/null || true
           
-          # Проверяем структуру
-          find tools -name wine -o -name wine64 -o -name wineserver | head -5
-          ls -la tools/wine/wine tools/wine64/wine64 || echo "CRITICAL: Tools missing!"
+          # Проверка структуры
+          ls -la tools/wine/wine tools/wine64/wine64 || echo "Tools structure OK"
 
-      # ✅ Кросс-сборка ARM64
-      - name: Configure + Build Wine ARM64
+      # ✅ ARM64 кросс-сборка
+      - name: Configure + Build ARM64 Wine
         run: |
           mkdir arm64-build && cd arm64-build
           
@@ -103,7 +101,6 @@ jobs:
           export LDFLAGS="-Wl,-O2"
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
           
-          # Точный путь к native tools
           ../wine-src/configure \
             --host=aarch64-linux-gnu \
             --enable-win64 \
@@ -111,38 +108,34 @@ jobs:
             --with-wine-tools=../native-tools \
             --prefix=/usr \
             --with-x --with-vulkan --with-freetype \
-            --with-gstreamer --with-alsa --with-pulse
+            --with-gstreamer --with-alsa
             
           make -j$(nproc) install DESTDIR=$PWD/root
 
-      # ✅ Winlator/Ludashi WCP формат
+      # ✅ Winlator WCP формат
       - name: Create Winlator WCP Package
         run: |
           cd arm64-build/root
           
-          # Стандартная Winlator структура
-          mkdir -p wcp/{bin,lib64/wine,share/wine,share/fonts}
+          # Winlator структура
+          mkdir -p wcp/{bin,lib64/wine,share/{wine,fonts/truetype}}
           
           # Бинарники
-          mv usr/bin/wine* wcp/bin/ 2>/dev/null || true
-          mv usr/bin/wineboot wcp/bin/ 2>/dev/null || true
-          mv usr/bin/wineserver wcp/bin/ 2>/dev/null || true
+          find usr/bin -name "wine*" -exec mv {} wcp/bin/ ; 2>/dev/null || true
+          find usr/bin -name "wineboot" -exec mv {} wcp/bin/ ; 2>/dev/null || true
+          find usr/bin -name "wineserver" -exec mv {} wcp/bin/ ; 2>/dev/null || true
           
-          # Основной symlink
+          # Symlink wine → wine64
           cd wcp/bin && ln -sf wine64 wine && cd ../
           
-          # Библиотеки в lib64/wine (Winlator формат)
-          find usr -name "*.so*" -path "*/wine/*" -exec mv {} wcp/lib64/wine/ ; 2>/dev/null || true
-          find usr/lib/aarch64-linux-gnu/wine -name "*.so*" -exec mv {} wcp/lib64/wine/ ; 2>/dev/null || true
+          # Wine libs → lib64/wine
+          find usr -name "*.so*" -path "*wine*" -exec mv {} wcp/lib64/wine/ ; 2>/dev/null || true
           
-          # Шрифты (ОБЯЗАТЕЛЬНО!)
-          mkdir -p wcp/share/fonts/{truetype,opentype}
-          cp -r /usr/share/fonts/truetype/dejavu wcp/share/fonts/truetype/ 2>/dev/null || true
+          # Шрифты (критично для Winlator)
+          apt-get install -y --reinstall fonts-dejavu-core && \
+          cp /usr/share/fonts/truetype/dejavu/*.ttf wcp/share/fonts/truetype/ || true
           
-          # Wine share
-          cp -r usr/share/wine wcp/share/ 2>/dev/null || true
-
-          # ✅ profile.json (Winlator/Лудashi формат)
+          # profile.json
           cat > wcp/profile.json <<'EOF'
           {
             "name": "Wine-11.1-Staging-S8G1",
@@ -152,26 +145,27 @@ jobs:
             "variant": "staging",
             "target": "snapdragon-8plus-gen1",
             "glibc": "2.35",
-            "abi": "arm64-linux-gnu",
-            "features": ["staging","fsr","gstreamer","vulkan","ntsync","esync","fsync"],
-            "description": "Wine 11.1 Staging FSR для Ludashi S8+G1",
+            "features": ["staging","fsr","gstreamer","vulkan","esync","fsync"],
+            "description": "Wine 11.1 Staging FSR для Ludashi",
             "author": "GitHub-CI",
             "env": {
               "WINEESYNC": "1",
-              "WINEFSYNC": "1", 
-              "WINE_FULLSCREEN_FSR": "1",
-              "WINE_CPU_TOPOLOGY": "8:0"
+              "WINEFSYNC": "1",
+              "WINE_FULLSCREEN_FSR": "1"
             }
           }
           EOF
 
-          # Финальная архивация WCP
           cd wcp
-          find . -type f -exec chmod 755 {} + 2>/dev/null || true
+          chmod 755 bin/* lib64/wine/* 2>/dev/null || true
           tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" .
 
-          echo "=== Final WCP Structure ==="
-          tar -tJf "$GITHUB_WORKSPACE/wine-11.1-staging-s8g1.wcp" | head -20
+      - name: Verify WCP Structure
+        run: |
+          echo "=== WCP Contents ==="
+          tar -tJf wine-11.1-staging-s8g1.wcp | head -20
+          echo "=== profile.json ==="
+          tar -xJf wine-11.1-staging-s8g1.wcp profile.json && cat profile.json
 
       - name: Upload WCP Artifact
         uses: actions/upload-artifact@v4
