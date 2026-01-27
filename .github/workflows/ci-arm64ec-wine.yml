@@ -116,8 +116,9 @@ jobs:
           ../wine/configure --enable-win64 --disable-tests
           make __tooldeps__
 
+      
       # ============================================================
-      # ARM64EC + WOW64 + NTSYNC (STABLE - FIXED FREETYPE/FONTCONFIG DEP)
+      # ARM64EC + WOW64 + NTSYNC (STABLE - FIXED VULKAN DEP)
       # ============================================================
       - name: Build Wine ARM64EC + WoW64 + NTsync
         run: |
@@ -161,7 +162,7 @@ jobs:
           export RC=aarch64-w64-mingw32-windres
 
           # Запуск configure из директории build, указывая путь к исходникам ../wine
-          # ЗАМЕНЕНЫ --with-freetype на --without-freetype и --with-fontconfig на --without-fontconfig
+          # ЗАМЕНЕН --with-vulkan на --without-vulkan
           ../wine/configure \
             --host=aarch64-w64-mingw32 \
             --with-wine-tools=../host \
@@ -173,7 +174,7 @@ jobs:
             --disable-fsync \
             --disable-tests \
             --without-x \
-            --with-vulkan \
+            --without-vulkan \
             --without-freetype \
             --without-fontconfig \
             --without-wayland \
