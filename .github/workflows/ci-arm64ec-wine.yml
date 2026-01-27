@@ -36,7 +36,10 @@ jobs:
             libxi-dev libxinerama-dev libxcursor-dev \
             libxcomposite-dev libxfixes-dev libxkbcommon-dev \
             libdrm-dev libvulkan-dev libfreetype-dev libfontconfig1-dev \
-            libpulse-dev libasound2-dev libdbus-1-dev
+            libpulse-dev libasound2-dev libdbus-1-dev \
+            libpcap-dev libgnutls-dev libinotify-dev \
+            libsdl2-dev gettext libudev-dev \
+            ffmpeg libpcsclite-dev
 
       # ============================================================
       # LLVM MinGW
@@ -87,8 +90,6 @@ jobs:
             --enable-win64 \
             --enable-wow64 \
             --enable-archs=arm64ec,aarch64 \
-            --disable-esync \
-            --disable-fsync \
             --disable-tests \
             --without-x \
             --without-wayland \
@@ -117,7 +118,7 @@ jobs:
       # ============================================================
       - name: Download and extract additional dependencies
         run: |
-          # Download necessary packages
+          # Загрузка необходимых пакетов
           wget -q https://github.com/StevenMXZ/freedreno_turnip-CI/releases/download/v23/Turnip_Gen8_V23.zip -O Turnip_Gen8_V23.zip
           unzip Turnip_Gen8_V23.zip -d Turnip
 
@@ -126,7 +127,7 @@ jobs:
           wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/WOWBOX64-NIGHTLY/wowbox64-0.4.1-260127-627b857.wcp -O wowbox64.wcp
           wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp -O vkd3d.wcp
 
-          # Apply these additional WCP files to the build
+          # Перемещение файлов WCP в сборочную директорию
           mkdir -p build/install/wine
           mv *.wcp build/install/wine/
 
