@@ -9,7 +9,8 @@ jobs:
 
     # Уменьшаем параллелизм make
     env:
-      MAKEFLAGS: -j2
+  # Уменьшаем параллелизм make до 1
+        MAKEFLAGS: -j1
 
     steps:
       - uses: actions/checkout@v4
@@ -114,9 +115,9 @@ jobs:
           ../wine/configure --enable-win64 --disable-tests
           make __tooldeps__
 
+      
       # ============================================================
-      # ============================================================
-      # ARM64EC + WOW64 + NTSYNC (STABLE - FIXED VULKAN DEP)
+      # ARM64EC + WOW64 + NTSYNC (STABLE - FIXED VULKAN DEP, REDUCED PARALLELISM)
       # ============================================================
       - name: Build Wine ARM64EC + WoW64 + NTsync
         run: |
@@ -183,6 +184,8 @@ jobs:
 
           make
           DESTDIR=$PWD/install make install
+
+# ... (остальные части скрипта остаются без изменений) ...
 
       # ============================================================
       # PHAT WCP + DXVK + VKD3D
