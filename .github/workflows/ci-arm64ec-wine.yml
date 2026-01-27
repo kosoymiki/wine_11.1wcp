@@ -115,6 +115,7 @@ jobs:
           make __tooldeps__
 
       # ============================================================
+      # ============================================================
       # ARM64EC + WOW64 + NTSYNC (STABLE - FIXED VULKAN DEP)
       # ============================================================
       - name: Build Wine ARM64EC + WoW64 + NTsync
@@ -145,7 +146,8 @@ jobs:
           OPT="-O3 -march=armv8.2-a+fp16+dotprod"
           # Явно отключаем предупреждения, которые могут стать ошибками
           export CFLAGS="$OPT -Wno-error -Wno-error=nonnull -Wno-error=maybe-uninitialized -Wno-maybe-uninitialized"
-          export CXXFLAGS="$OPT -Wno-error -Wno-error=nonnull -Wno-error=maybe-uninitialized -Wno-maybe-uninitialized"          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+          export CXXFLAGS="$OPT -Wno-error -Wno-error=nonnull -Wno-error=maybe-uninitialized -Wno-maybe-uninitialized"
+          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
 
           # Установка переменных для кросскомпиляции под Windows ARM64
           export CC=aarch64-w64-mingw32-clang
@@ -159,6 +161,7 @@ jobs:
 
           # Запуск configure из директории build, указывая путь к исходникам ../wine
           # ЗАМЕНЕН --with-vulkan на --without-vulkan
+          # УБРАН i386 из --enable-archs
           ../wine/configure \
             --host=aarch64-w64-mingw32 \
             --with-wine-tools=../host \
