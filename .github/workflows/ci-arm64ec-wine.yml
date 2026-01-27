@@ -23,7 +23,7 @@ jobs:
       # ============================================================
       # SYSTEM SETUP (STABLE, JAMMY, ARM64EC-SAFE)
       # ===========================================================
-      - name: System setup (stable, no apt hacks)
+      - name: System setup (stable, jammy, ARM64EC)
         run: |
           set -e
 
@@ -33,7 +33,7 @@ jobs:
           sudo add-apt-repository -y multiverse
           sudo apt update
 
-          # Установка зависимостей для сборки Wine
+          # Установка dev‑зависимостей для сборки Wine (Ubuntu 22.04)
           sudo apt install -y --no-install-recommends \
             build-essential git python3 ca-certificates \
             clang lld llvm \
@@ -44,10 +44,17 @@ jobs:
             libxcomposite-dev libxfixes-dev libxkbcommon-dev \
             libdrm-dev libvulkan-dev \
             libfreetype-dev libfontconfig1-dev \
-            libpulse-dev libasound2-dev libdbus-1-dev \
-            libpcap-dev libgnutls28-dev \
-            libsdl2-dev gettext libudev-dev \
-            ffmpeg inotify-tools libpcsclite-dev
+            libpulse-dev libasound2-dev \
+            libdbus-1-dev \
+            libpcap-dev \
+            libgnutls28-dev \
+            libsdl2-dev \
+            libudev-dev \
+            inotify-tools libinotifytools0-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+            libpcsclite-dev \
+            gettext
+
 
 
 
