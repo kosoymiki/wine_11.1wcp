@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging PHAT + NTsync + DXVK + VKD3D ARM64EC
+name: Wine 11.1 Staging PHAT + NTsync + DXVK + VKD3D ARM64EC (STABLE)
 
 on:
   workflow_dispatch:
@@ -7,14 +7,19 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
+    env:
+      MAKEFLAGS: -j$(nproc)
+
     steps:
       - uses: actions/checkout@v4
 
       # ============================================================
-      # SYSTEM SETUP
+      # SYSTEM SETUP (DEFENSIVE)
       # ============================================================
       - name: System setup
         run: |
+          set -e
+
           sudo dpkg --add-architecture arm64
           sudo tee /etc/apt/sources.list <<'EOF'
           deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main universe multiverse
@@ -24,21 +29,24 @@ jobs:
           EOF
 
           sudo apt update
-          sudo apt install -y \
-            build-essential git python3 \
+
+          sudo apt install -y --no-install-recommends \
+            build-essential git python3 ca-certificates \
             clang lld llvm \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             flex bison autoconf automake libtool pkg-config \
             libx11-dev:arm64 libxext-dev:arm64 libxrandr-dev:arm64 \
             libxrender-dev:arm64 libxi-dev:arm64 libxinerama-dev:arm64 \
             libxcursor-dev:arm64 libxcomposite-dev:arm64 libxfixes-dev:arm64 \
-            libxkbcommon-dev:arm64 libdrm-dev:arm64 libvulkan-dev:arm64
+            libxkbcommon-dev:arm64 libdrm-dev:arm64 libvulkan-dev:arm64 \
+            libfreetype-dev:arm64 libfontconfig1-dev:arm64
 
       # ============================================================
       # LLVM MinGW
       # ============================================================
       - name: LLVM MinGW
         run: |
+          set -e
           wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ
           echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
 
@@ -47,18 +55,18 @@ jobs:
       # ============================================================
       - name: Clone Wine + Staging
         run: |
+          set -e
           git clone --depth 1 -b wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
           git clone --depth 1 -b v11.1 https://gitlab.winehq.org/wine/wine-staging.git staging
 
       # ============================================================
-      # APPLY STAGING (SAFE MODE)
+      # APPLY STAGING (SAFE, NTSYNC-PRIORITY)
       # ============================================================
-      - name: Apply Wine-Staging (without sync hacks)
+      - name: Apply Wine-Staging (safe mode)
         run: |
           set +e
           cd staging
 
-          # Применяем ВСЁ, КРОМЕ sync/ntdll/fsync/esync
           ./staging/patchinstall.py \
             DESTDIR=../wine \
             --all \
@@ -73,20 +81,22 @@ jobs:
           autoreconf -fiv
 
       # ============================================================
-      # HOST WINETOOLS
+      # HOST WINETOOLS (x86_64)
       # ============================================================
       - name: Build host winetools
         run: |
+          set -e
           mkdir -p host
           cd host
           ../wine/configure --enable-win64 --disable-tests
-          make -j$(nproc) __tooldeps__
+          make __tooldeps__
 
       # ============================================================
-      # ARM64EC + WOW64 + NTSYNC
+      # ARM64EC + WOW64 + NTSYNC (STABLE)
       # ============================================================
       - name: Build Wine ARM64EC + WoW64 + NTsync
         run: |
+          set -e
           mkdir -p build
           cd build
 
@@ -115,7 +125,7 @@ jobs:
             --without-cups \
             --without-sane
 
-          make -j$(nproc)
+          make
           DESTDIR=$PWD/install make install
 
       # ============================================================
@@ -123,6 +133,7 @@ jobs:
       # ============================================================
       - name: Create PHAT WCP
         run: |
+          set -e
           cd build/install
 
           mkdir -p wcp/{bin,lib/wine/{aarch64-unix,aarch64-windows,arm64ec-windows,i386-windows},share}
@@ -136,12 +147,10 @@ jobs:
 
           cp -a usr/share/wine wcp/share/
 
-          # DXVK
           wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp
           mkdir dxvk && tar -xJf dxvk-gplasync-arm64ec-2.7.1-1.wcp -C dxvk
           cp -a dxvk/wcp/* wcp/
 
-          # VKD3D
           wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp
           mkdir vkd3d && tar -xJf vkd3d-proton-arm64ec-3.0b.wcp -C vkd3d
           cp -a vkd3d/wcp/* wcp/
@@ -162,7 +171,7 @@ jobs:
             "name": "Wine-11.1-Staging-PHAT-NTsync-DXVK-VKD3D-ARM64EC",
             "version": "11.1",
             "arch": "arm64",
-            "variant": "winlator-ultimate-ntsync"
+            "variant": "winlator-ultimate-stable"
           }
           EOF
 
