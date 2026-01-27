@@ -47,11 +47,17 @@ jobs:
       - name: LLVM MinGW
         run: |
           set -e
-          # Загрузка и распаковка llvm-mingw
-          wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ
+          # Загрузка архива llvm-mingw
+          wget -qO llvm-ming.tar.xz https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz
+          # Проверка типа файла (должен быть xz-compressed data)
+          file llvm-ming.tar.xz
+          # Распаковка архива
+          tar -xJf llvm-ming.tar.xz
+          # Удаление загруженного архива (опционально, для экономии места)
+          rm llvm-ming.tar.xz
           # Добавление пути к llvm-mingw в переменную окружения PATH для последующих шагов
-          echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH | tar xJ          echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
-
+          echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
+          
       # ============================================================
       # SOURCES
       # ============================================================
