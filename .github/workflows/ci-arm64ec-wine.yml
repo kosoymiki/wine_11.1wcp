@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging PHAT + NTsync + DXVK + VKD3D ARM64EC (FIXED CONFIGURE)
+name: Wine 11.1 Staging PHAT + NTsync + DXVK + VKD3D ARM64EC (FINAL)
 
 on:
   workflow_dispatch:
@@ -47,9 +47,7 @@ jobs:
       - name: LLVM MinGW
         run: |
           set -e
-          # Загрузка и распаковка          wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ
-          # Добавление пути к LLVM MinGW в PATH GitHub Actions
-          echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
+          wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ          echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
 
       # ============================================================
       # SOURCES
@@ -96,21 +94,17 @@ jobs:
       # ARM64EC + WOW64 + NTSYNC (STABLE - FIXED CONFIGURE)
       # ============================================================
       - name: Build Wine ARM64EC + WoW64 + NTsync
-        run: |     
+        run: |
           set -e
-          mkdir -p build
-          cd build
+          mkdir -p build          cd build
 
-          # Убедиться, что инструменты llvm-mingw доступны
           which aarch64-w64-mingw32-clang
 
           OPT="-O3 -march=armv8.2-a+fp16+dotprod"
-          # Явно отключаем предупреждения, которые могут стать ошибками
           export CFLAGS="$OPT -Wno-error -Wno-error=nonnull -Wno-error=maybe-uninitialized -Wno-maybe-uninitialized"
           export CXXFLAGS="$OPT -Wno-error -Wno-error=nonnull -Wno-error=maybe-uninitialized -Wno-maybe-uninitialized"
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
 
-          # Установка переменных для кросскомпиляции под Windows ARM64
           export CC=aarch64-w64-mingw32-clang
           export CXX=aarch64-w64-mingw32-clang++
           export DLLTOOL=aarch64-w64-mingw32-dlltool
@@ -120,8 +114,6 @@ jobs:
           export OBJDUMP=aarch64-w64-mingw32-objdump
           export RC=aarch64-w64-mingw32-windres
 
-          # Убираем --with-mingw=clang, так как мы устанавливаем переменные окружения
-          # Это может помочь избежать конфликта
           ../wine/configure \
             --host=aarch64-w64-mingw32 \
             --with-wine-tools=../host \
@@ -146,13 +138,13 @@ jobs:
 
       # ============================================================
       # PHAT WCP + DXVK + VKD3D
-      # ============================================================      - name: Create PHAT WCP
+      # ============================================================
+      - name: Create PHAT WCP
         run: |
           set -e
           cd "$GITHUB_WORKSPACE/build/install"
 
           mkdir -p wcp/{bin,lib/wine/{aarch64-unix,aarch64-windows},share}
-
           cp usr/bin/* wcp/bin/
           cd wcp/bin && ln -sf wine64 wine && cd ../..
 
@@ -195,6 +187,8 @@ jobs:
       # ============================================================
       # UPLOAD
       # ============================================================
-      - uses: actions/upload-artifact@v4        with:
+      - name: Upload WCP Artifact
+        uses: actions/upload-artifact@v4
+        with:
           name: wine-11.1-staging-phat-ntsync-dxvk-vkd3d-arm64ec
           path: wine-11.1-staging-phat-ntsync-dxvk-vkd3d-arm64ec.wcp
