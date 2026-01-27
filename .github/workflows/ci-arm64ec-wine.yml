@@ -15,47 +15,66 @@ jobs:
       # ============================================================
       # SYSTEM SETUP
       # ============================================================
-      - name: System setup
+      - name: System setup (multiarch safe, arm64ec)
         run: |
-         set -e
+          set -e
 
-         sudo dpkg --add-architecture arm64
+          # ------------------------------------------------------------
+          # Enable arm64 architecture
+          # ------------------------------------------------------------
+          sudo dpkg --add-architecture arm64
 
-         sudo tee /etc/apt/preferences.d/no-security-arm64 <<'EOF'
-         Package: *
-         Pin: origin security.ubuntu.com
-         Pin-Priority: -1
-         EOF
+          # ------------------------------------------------------------
+          # Force ALL default Ubuntu mirrors to amd64 ONLY
+          # (archive, security, azure mirror used by GitHub Actions)
+          # ------------------------------------------------------------
+          sudo sed -i \
+            -e 's|^deb http://archive.ubuntu.com/ubuntu|deb [arch=amd64] http://archive.ubuntu.com/ubuntu|g' \
+            -e 's|^deb http://security.ubuntu.com/ubuntu|deb [arch=amd64] http://security.ubuntu.com/ubuntu|g' \
+            -e 's|^deb http://azure.archive.ubuntu.com/ubuntu|deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu|g' \
+            /etc/apt/sources.list
 
+          sudo sed -i \
+            -e 's|^deb http://archive.ubuntu.com/ubuntu|deb [arch=amd64] http://archive.ubuntu.com/ubuntu|g' \
+            -e 's|^deb http://security.ubuntu.com/ubuntu|deb [arch=amd64] http://security.ubuntu.com/ubuntu|g' \
+            -e 's|^deb http://azure.archive.ubuntu.com/ubuntu|deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu|g' \
+            /etc/apt/sources.list.d/*.list || true
 
-         sudo tee /etc/apt/sources.list.d/arm64-ports.list <<'EOF'
-         deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe multiverse
-         deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe multiverse
-         deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main universe multiverse
-         EOF
+          # ------------------------------------------------------------
+          # Add ARM64 ports repositories (ONLY place for arm64 packages)
+          # ------------------------------------------------------------
+          sudo tee /etc/apt/sources.list.d/arm64-ports.list <<'EOF'
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main universe multiverse
+          EOF
 
-         sudo apt update
+          # ------------------------------------------------------------
+          # Update package lists (NO 404 POSSIBLE HERE)
+          # ------------------------------------------------------------
+          sudo apt update
 
-
-
-         sudo apt install -y --no-install-recommends \
-         build-essential git python3 ca-certificates \
-         clang lld llvm \
-         gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-         flex bison autoconf automake libtool pkg-config \
-         \
-         libx11-dev libxext-dev libxrandr-dev libxrender-dev \
-         libxi-dev libxinerama-dev libxcursor-dev \
-         libxcomposite-dev libxfixes-dev libxkbcommon-dev \
-         libdrm-dev libvulkan-dev \
-         libfreetype-dev libfontconfig1-dev \
-         libpulse-dev libasound2-dev libdbus-1-dev \
-         \
-         libx11-dev:arm64 libxext-dev:arm64 libxrandr-dev:arm64 \
-         libxrender-dev:arm64 libxi-dev:arm64 libxinerama-dev:arm64 \
-         libxcursor-dev:arm64 libxcomposite-dev:arm64 libxfixes-dev:arm64 \
-         libxkbcommon-dev:arm64 libdrm-dev:arm64 libvulkan-dev:arm64 \
-         libfreetype-dev:arm64 libfontconfig1-dev:arm64
+          # ------------------------------------------------------------
+          # Install build + Wine dependencies (amd64 + arm64)
+          # ------------------------------------------------------------
+          sudo apt install -y --no-install-recommends \
+            build-essential git python3 ca-certificates \
+            clang lld llvm \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            flex bison autoconf automake libtool pkg-config \
+            \
+            libx11-dev libxext-dev libxrandr-dev libxrender-dev \
+            libxi-dev libxinerama-dev libxcursor-dev \
+            libxcomposite-dev libxfixes-dev libxkbcommon-dev \
+            libdrm-dev libvulkan-dev \
+            libfreetype-dev libfontconfig1-dev \
+            libpulse-dev libasound2-dev libdbus-1-dev \
+            \
+            libx11-dev:arm64 libxext-dev:arm64 libxrandr-dev:arm64 \
+            libxrender-dev:arm64 libxi-dev:arm64 libxinerama-dev:arm64 \
+            libxcursor-dev:arm64 libxcomposite-dev:arm64 libxfixes-dev:arm64 \
+            libxkbcommon-dev:arm64 libdrm-dev:arm64 libvulkan-dev:arm64 \
+            libfreetype-dev:arm64 libfontconfig1-dev:arm64
 
 
 
