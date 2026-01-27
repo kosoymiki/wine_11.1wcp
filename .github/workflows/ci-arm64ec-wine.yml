@@ -95,6 +95,8 @@ jobs:
             --without-x \
             --without-wayland \
             --without-cups \
+            --with-freetype \
+            --with-fontconfig \
             --without-sane
 
           make
