@@ -47,8 +47,7 @@ jobs:
       - name: LLVM MinGW
         run: |
           set -e
-          # Загрузка архива llvm-mingw
-          wget -qO llvm-ming.tar.xz https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz
+          # Загрузка архива llvm-mingw          wget -qO llvm-ming.tar.xz https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz
           # Проверка типа файла (должен быть xz-compressed data)
           file llvm-ming.tar.xz
           # Распаковка архива
@@ -57,7 +56,7 @@ jobs:
           rm llvm-ming.tar.xz
           # Добавление пути к llvm-mingw в переменную окружения PATH для последующих шагов
           echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
-          
+
       # ============================================================
       # SOURCES
       # ============================================================
@@ -84,7 +83,6 @@ jobs:
           cd ../wine
 
           # Пытаемся откатить патчи, связанные с fsync, esync и общей синхронизацией, которые конфликтуют с NTsync.
-          # Имена файлов патчей определяются автоматически внутри папок.
           # git apply -R откатывает патч. Если патч не был применён, будет ошибка, которую мы игнорируем.
 
           # Откатываем fsync-related патчи
@@ -98,8 +96,7 @@ jobs:
           # Откатываем ntdll-Synchronization related патчи (если они мешают NTsync)
           git apply -R staging/patches/ntdll-Synchronization/ || echo "No patches from ntdll-Synchronization were applied or already reverted."
 
-          # Проверим статус git для диагностики
-          echo "Git status after reverting sync patches:"
+          # Проверим статус git для диагностики          echo "Git status after reverting sync patches:"
           git status
 
           # Перегенерируем configure
@@ -116,7 +113,6 @@ jobs:
           ../wine/configure --enable-win64 --disable-tests
           make __tooldeps__
 
-      
       # ============================================================
       # ARM64EC + WOW64 + NTSYNC (STABLE - FIXED VULKAN DEP)
       # ============================================================
@@ -150,7 +146,6 @@ jobs:
           export CFLAGS="$OPT -Wno-error -Wno-error=nonnull -Wno-error=maybe-uninitialized -Wno-maybe-uninitialized"
           export CXXFLAGS="$OPT -Wno-error -Wno-error=nonnull -Wno-error=maybe-uninitialized -Wno-maybe-uninitialized"
           export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
-
           # Установка переменных для кросскомпиляции под Windows ARM64
           export CC=aarch64-w64-mingw32-clang
           export CXX=aarch64-w64-mingw32-clang++
@@ -184,7 +179,6 @@ jobs:
 
           make
           DESTDIR=$PWD/install make install
-            
 
       # ============================================================
       # PHAT WCP + DXVK + VKD3D
@@ -195,12 +189,12 @@ jobs:
           cd "$GITHUB_WORKSPACE/build/install"
 
           mkdir -p wcp/{bin,lib/wine/{aarch64-unix,aarch64-windows},share}
+
           cp usr/bin/* wcp/bin/
           cd wcp/bin && ln -sf wine64 wine && cd ../..
 
           find usr/lib -name "*.dll.so" -exec cp {} wcp/lib/wine/aarch64-windows/ \;
-          find usr/lib -name "*.exe.so" -exec cp {} wcp/lib/wine/aarch64-windows/ \;
-          find usr/lib -name "*.so" ! -name "*.dll.so" -exec cp {} wcp/lib/wine/aarch64-unix/ \;
+          find usr/lib -name "*.exe.so" -exec cp {} wcp/lib/wine/aarch64-windows/ \;          find usr/lib -name "*.so" ! -name "*.dll.so" -exec cp {} wcp/lib/wine/aarch64-unix/ \;
 
           cp -a usr/share/wine wcp/share/
 
