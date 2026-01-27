@@ -16,28 +16,30 @@ jobs:
       # SYSTEM SETUP
       # ============================================================
       - name: System setup
-        run: 
-          set -e
+        run: |
+         set -e
 
-          sudo dpkg --add-architecture arm64
+         sudo dpkg --add-architecture arm64
 
-          sudo tee /etc/apt/sources.list <<'EOF'
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main universe multiverse
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main universe multiverse
-          deb [arch=amd64] http://security.ubuntu.com/ubuntu jammy-security main universe multiverse
+         sudo tee /etc/apt/sources.list > /dev/null <<'EOF'
+         deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main universe multiverse
+         deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main universe multiverse
+         deb [arch=amd64] http://security.ubuntu.com/ubuntu jammy-security main universe multiverse
 
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main universe multiverse
-          EOF
+         deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe multiverse
+         deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe multiverse
+         deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main universe multiverse
+         EOF
 
-          sudo apt update
-          sudo apt install -y --no-install-recommends \
-          build-essential git python3 ca-certificates \
-          clang lld llvm \
-          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-          flex bison autoconf automake libtool pkg-config \
-          libfreetype-dev:arm64 libfontconfig1-dev:arm64
+         sudo apt update
+
+         sudo apt install -y --no-install-recommends \
+         build-essential git python3 ca-certificates \
+         clang lld llvm \
+         gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+         flex bison autoconf automake libtool pkg-config \
+         libfreetype-dev:arm64 libfontconfig1-dev:arm64
+
 
       # ============================================================
       # LLVM MinGW
