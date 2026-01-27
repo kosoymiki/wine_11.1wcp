@@ -96,7 +96,8 @@ jobs:
       # ARM64EC + WOW64 + NTSYNC (STABLE - FIXED FLAGS)
       # ============================================================
       - name: Build Wine ARM64EC + WoW64 + NTsync
-        run: |          set -e
+        run: |     
+          set -e
           mkdir -p build
           cd build
 
