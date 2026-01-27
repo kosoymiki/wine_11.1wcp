@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging PHAT + NTsync + DXVK + VKD3D ARM64EC (FIXED COMPILATION)
+name: Wine 11.1 Staging PHAT + NTsync + DXVK + VKD3D ARM64EC (FIXED LLVM PATH)
 
 on:
   workflow_dispatch:
@@ -47,7 +47,9 @@ jobs:
       - name: LLVM MinGW
         run: |
           set -e
-          wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ          echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
+          # Загрузка и распаковка          wget -qO- https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz | tar xJ
+          # Добавление пути к LLVM MinGW в PATH GitHub Actions
+          echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
 
       # ============================================================
       # SOURCES
@@ -94,9 +96,9 @@ jobs:
       # ARM64EC + WOW64 + NTSYNC (STABLE - FIXED FLAGS)
       # ============================================================
       - name: Build Wine ARM64EC + WoW64 + NTsync
-        run: |
-          set -e
-          mkdir -p build          cd build
+        run: |          set -e
+          mkdir -p build
+          cd build
 
           OPT="-O3 -march=armv8.2-a+fp16+dotprod"
           # Явно отключаем предупреждения, которые могут стать ошибками
@@ -144,8 +146,8 @@ jobs:
         run: |
           set -e
           cd "$GITHUB_WORKSPACE/build/install"
-
           mkdir -p wcp/{bin,lib/wine/{aarch64-unix,aarch64-windows},share}
+
           cp usr/bin/* wcp/bin/
           cd wcp/bin && ln -sf wine64 wine && cd ../..
 
