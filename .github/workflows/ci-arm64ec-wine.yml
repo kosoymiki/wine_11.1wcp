@@ -12,60 +12,28 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
+      
       # ============================================================
-      # SYSTEM SETUP (MULTIARCH SAFE, ARM64EC)
+      # SYSTEM SETUP (STABLE, JAMMY, ARM64EC-SAFE)
       # ============================================================
-      - name: System setup (multiarch safe, arm64ec)
+      - name: System setup (stable, no apt hacks)
         run: |
-          set -e
+                 set -e
 
-          # ------------------------------------------------------------
-          # Enable arm64 architecture
-          # ------------------------------------------------------------
-          sudo dpkg --add-architecture arm64
+                 sudo apt update
 
-          # ------------------------------------------------------------
-          # Force ALL default Ubuntu mirrors to amd64 ONLY
-          # (archive, security, azure mirror used by GitHub Actions)
-          # ------------------------------------------------------------
-          sudo sed -i \
-            -e 's|^deb http://archive.ubuntu.com/ubuntu|deb [arch=amd64] http://archive.ubuntu.com/ubuntu|g' \
-            -e 's|^deb http://security.ubuntu.com/ubuntu|deb [arch=amd64] http://security.ubuntu.com/ubuntu|g' \
-            -e 's|^deb http://azure.archive.ubuntu.com/ubuntu|deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu|g' \
-            /etc/apt/sources.list
-
-          sudo sed -i \
-            -e 's|^deb http://archive.ubuntu.com/ubuntu|deb [arch=amd64] http://archive.ubuntu.com/ubuntu|g' \
-            -e 's|^deb http://security.ubuntu.com/ubuntu|deb [arch=amd64] http://security.ubuntu.com/ubuntu|g' \
-            -e 's|^deb http://azure.archive.ubuntu.com/ubuntu|deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu|g' \
-            /etc/apt/sources.list.d/*.list || true
-
-          # ------------------------------------------------------------
-          # Add ARM64 ports repositories (ONLY place for arm64 packages)
-          # ------------------------------------------------------------
-          sudo tee /etc/apt/sources.list.d/arm64-ports.list <<'EOF'
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main universe multiverse
-          EOF
-
-          # ------------------------------------------------------------
-          # Update package lists (NO 404 POSSIBLE HERE)
-          # ------------------------------------------------------------
-          sudo apt update
-
-          # ------------------------------------------------------------
-          # Install build + Wine dependencies (amd64 + arm64)
-          # ------------------------------------------------------------
-          sudo apt install -y --no-install-recommends \
-            build-essential git python3 ca-certificates \
-            clang lld llvm \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            flex bison aut
-
-
-
+                 sudo apt install -y --no-install-recommends \
+                 build-essential git python3 ca-certificates \
+                 clang lld llvm \
+                 gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+                 flex bison autoconf automake libtool pkg-config \
+                 \
+                 libx11-dev libxext-dev libxrandr-dev libxrender-dev \
+                 libxi-dev libxinerama-dev libxcursor-dev \
+                 libxcomposite-dev libxfixes-dev libxkbcommon-dev \
+                 libdrm-dev libvulkan-dev \
+                 libfreetype-dev libfontconfig1-dev \
+                 libpulse-dev libasound2-dev libdbus-1-dev
 
       # ============================================================
       # LLVM MinGW
