@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging PHAT + NTsync + DXVK + VKD3D ARM64EC (FINAL STABLE)
+name: Wine 11.1 Staging PHAT + NTsync + DXVK + VKD3D ARM64EC (FINAL)
 
 on:
   workflow_dispatch:
@@ -6,14 +6,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     env:
-      MAKEFLAGS: -j1
+      MAKEFLAGS: -j$(nproc)
 
     steps:
       - uses: actions/checkout@v4
 
       # ============================================================
-      # SYSTEM SETUP
+      # SYSTEM SETUP (MULTIARCH SAFE, ARM64EC)
       # ============================================================
       - name: System setup (multiarch safe, arm64ec)
         run: |
@@ -61,20 +62,8 @@ jobs:
             build-essential git python3 ca-certificates \
             clang lld llvm \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            flex bison autoconf automake libtool pkg-config \
-            \
-            libx11-dev libxext-dev libxrandr-dev libxrender-dev \
-            libxi-dev libxinerama-dev libxcursor-dev \
-            libxcomposite-dev libxfixes-dev libxkbcommon-dev \
-            libdrm-dev libvulkan-dev \
-            libfreetype-dev libfontconfig1-dev \
-            libpulse-dev libasound2-dev libdbus-1-dev \
-            \
-            libx11-dev:arm64 libxext-dev:arm64 libxrandr-dev:arm64 \
-            libxrender-dev:arm64 libxi-dev:arm64 libxinerama-dev:arm64 \
-            libxcursor-dev:arm64 libxcomposite-dev:arm64 libxfixes-dev:arm64 \
-            libxkbcommon-dev:arm64 libdrm-dev:arm64 libvulkan-dev:arm64 \
-            libfreetype-dev:arm64 libfontconfig1-dev:arm64
+            flex bison aut
+
 
 
 
