@@ -27,6 +27,13 @@ jobs:
         run: |
           set -e
           sudo apt update
+          
+          # Активируем необходимые репозитории
+          sudo add-apt-repository universe
+          sudo add-apt-repository multiverse
+          sudo apt update
+          
+          # Установка всех зависимостей
           sudo apt install -y --no-install-recommends \
             build-essential git python3 ca-certificates \
             clang lld llvm \
