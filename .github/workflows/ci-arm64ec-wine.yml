@@ -88,16 +88,42 @@ jobs:
           ../wine/configure \
             --host=aarch64-w64-mingw32 \
             --with-wine-tools=../host \
+            \
             --enable-win64 \
             --enable-wow64 \
             --enable-archs=arm64ec,aarch64 \
+            \
+            --enable-ntsync \
+            --disable-esync \
+            --disable-fsync \
+            \
             --disable-tests \
+            \
             --without-x \
             --without-wayland \
+            --without-vulkan \
+            --without-opengl \
+            --without-glx \
+            --without-egl \
+            \
+            --without-freetype \
+            --without-fontconfig \
+            \
+            --without-gstreamer \
+            --without-pulse \
+            --without-alsa \
             --without-cups \
-            --with-freetype \
-            --with-fontconfig \
-            --without-sane
+            --without-sane \
+            --without-usb \
+            --without-v4l2 \
+            --without-gphoto \
+            \
+            --without-krb5 \
+            --without-gssapi \
+            --without-ldap \
+            --without-netapi \
+            --without-capi
+
 
           make
           DESTDIR=$PWD/install make install
