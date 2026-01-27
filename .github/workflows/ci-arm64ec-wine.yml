@@ -21,22 +21,25 @@ jobs:
         uses: actions/checkout@v4
         
         # ============================================================
+      #       # ============================================================
       # SYSTEM SETUP (STABLE, JAMMY, ARM64EC-SAFE)
       # ============================================================
       - name: System setup (stable, no apt hacks)
         run: |
           set -e
           
-          # Обновляем списки репозиториев
+          # Обновляем список репозиториев и активируем universe и multiverse
           sudo apt update
 
-          # Активируем репозитории universe и multiverse
+          # Добавляем необходимые репозитории
           sudo add-apt-repository universe
           sudo add-apt-repository multiverse
-          
-          # Обновляем индексы пакетов после активации репозиториев
           sudo apt update
-          
+
+          # Проверим доступность пакетов перед установкой
+          apt-cache search libgnutls
+          apt-cache search libinotify
+
           # Устанавливаем необходимые зависимости
           sudo apt install -y --no-install-recommends \
             build-essential git python3 ca-certificates \
@@ -51,6 +54,7 @@ jobs:
             libpcap-dev libgnutls-dev libinotify-dev \
             libsdl2-dev gettext libudev-dev \
             ffmpeg libpcsclite-dev
+
 
 
       # ============================================================
