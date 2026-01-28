@@ -15,9 +15,10 @@ jobs:
       LLVM_MINGW_DIR: "$HOME/llvm-mingw"
       BUILD_DIR: "$GITHUB_WORKSPACE/build"
       WCP_DIR: "$GITHUB_WORKSPACE/wcp"
+      WINE_SRC_DIR: "$GITHUB_WORKSPACE/wine-src"
+      WINE_STAGING_DIR: "$GITHUB_WORKSPACE/wine-staging"
 
     steps:
-
     - name: Checkout repository
       uses: actions/checkout@v4
 
@@ -57,16 +58,16 @@ jobs:
         set -eux
 
         # Удаляем возможные остатки
-        rm -rf wine
+        rm -rf "$WINE_SRC_DIR"
 
         # Загружаем исходники Wine 11.1
         wget -q https://dl.winehq.org/wine/source/11.x/wine-11.1.tar.xz
-        mkdir wine
-        tar -xJf wine-11.1.tar.xz -C wine --strip-components=1
+        mkdir -p "$WINE_SRC_DIR"
+        tar -xJf wine-11.1.tar.xz -C "$WINE_SRC_DIR" --strip-components=1
         rm wine-11.1.tar.xz
 
         # Проверим, что configure есть
-        if [ ! -f wine/configure ]; then
+        if [ ! -f "$WINE_SRC_DIR/configure" ]; then
           echo "ERROR: wine/configure not found"
           exit 1
         fi
@@ -76,46 +77,42 @@ jobs:
         set -eux
 
         # Удаляем возможные остатки staging
-        rm -rf staging
+        rm -rf "$WINE_STAGING_DIR"
 
         # Клонируем wine‑staging
-        git clone --depth 1 https://github.com/wine-staging/wine-staging.git staging
+        git clone --depth 1 https://github.com/wine-staging/wine-staging.git "$WINE_STAGING_DIR"
 
         # Проверяем, что папка существует
-        if [ ! -d staging ]; then
+        if [ ! -d "$WINE_STAGING_DIR" ]; then
           echo "ERROR: wine-staging not cloned!"
           exit 1
         fi
 
         # Перемещаем патчи в структуру expected staging/scripts
-        mkdir -p wine/staging
-        rsync -a staging/patches wine/staging/ || true
-
-
+        mkdir -p "$WINE_SRC_DIR/staging"
+        rsync -a "$WINE_STAGING_DIR/patches" "$WINE_SRC_DIR/staging/" || true
 
     - name: Apply staging patches and generate configure
       run: |
         set -eux
 
         # 1) Prepare wine sources
-        cd wine
+        cd "$WINE_SRC_DIR"
 
         # 2) Ensure configure scripts are generated
         autoreconf -fiv
 
         # 3) Apply staging patches via patchinstall.py
-        cd ../wine-staging
-        ./staging/patchinstall.py DESTDIR=../wine --all --no-autoconf || true
+        cd "$WINE_STAGING_DIR"
+        ./staging/patchinstall.py DESTDIR="$WINE_SRC_DIR" --all --no-autoconf || true
 
         # 4) Remove problematic sync patches if present
-        cd ../wine
-
         for p in \
-          staging/patches/ntdll-fsync/0001*.patch \
-          staging/patches/server-Fsync/0001*.patch \
-          staging/patches/ntdll-esync/0001*.patch \
-          staging/patches/server-Esync/0001*.patch \
-          staging/patches/ntdll-Synchronization/0001*.patch; do
+          "$WINE_SRC_DIR/staging/patches/ntdll-fsync/0001*.patch" \
+          "$WINE_SRC_DIR/staging/patches/server-Fsync/0001*.patch" \
+          "$WINE_SRC_DIR/staging/patches/ntdll-esync/0001*.patch" \
+          "$WINE_SRC_DIR/staging/patches/server-Esync/0001*.patch" \
+          "$WINE_SRC_DIR/staging/patches/ntdll-Synchronization/0001*.patch"; do
           if [ -f $p ]; then
             git apply -R "$p" || true
           fi
@@ -143,7 +140,7 @@ jobs:
         export STRIP=aarch64-w64-mingw32-strip
 
         # Run configure in wine root
-        ../wine/configure \
+        "$WINE_SRC_DIR/configure" \
           --host=aarch64-w64-mingw32 \
           --with-wine-tools=../host \
           --enable-win64 \
