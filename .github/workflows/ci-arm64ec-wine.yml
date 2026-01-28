@@ -166,7 +166,8 @@ jobs:
             "$WINE_VERSION" > "$WCP_DIR/info.json"
 
       - name: Upload artifact
-        uses: actions/upload‑artifact@v4
+        uses: actions/upload-artifact@v4
         with:
-          name: wine‑arm64ec‑phat
+          name: wine-arm64ec-phat
           path: $WCP_DIR
+
