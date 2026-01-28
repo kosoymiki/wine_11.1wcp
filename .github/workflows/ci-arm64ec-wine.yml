@@ -22,7 +22,6 @@ jobs:
       WINE_VERSION: "11.1"
 
     steps:
-
     - uses: actions/checkout@v4
 
     - name: Install dependencies
@@ -52,13 +51,12 @@ jobs:
         set -eux
         which aarch64-w64-mingw32-clang
         aarch64-w64-mingw32-clang --version
-        aarch64-w64-mingw32-clang++ --version
         echo "int main(){return 0;}" > /tmp/t.c
         aarch64-w64-mingw32-clang --target=aarch64-w64-mingw32 \
           -o /tmp/t.exe /tmp/t.c -Wl,--no-undefined
         file /tmp/t.exe
 
-    - name: Clone Wine and staging
+    - name: Clone Wine and Wine‑Staging
       run: |
         mkdir -p "$WORKDIR/src"
         cd "$WORKDIR/src"
@@ -66,10 +64,11 @@ jobs:
         git clone --depth 1 \
           --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
 
-        git clone --depth 1 \
-          https://gitlab.winehq.org/wine/wine-staging.git wine-staging
+        git clone https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-        ls -1 "$STAGINGDIR/patches" | head -n 10
+        echo "=== staging directory sample ==="
+        ls -l "$STAGINGDIR/staging/patches" | head -n 10
+        ls -l "$STAGINGDIR/patches" | head -n 10
 
     - name: Determine staging upstream commit
       id: upstream
@@ -130,7 +129,7 @@ jobs:
         ninja
         ninja install --destdir="$EXTERNALDIR/mesa"
 
-    - name: Integrate DXVK, VKD3D
+    - name: Integrate DXVK/VKD3D
       run: |
         mkdir -p "$EXTERNALDIR/dxvk" "$EXTERNALDIR/vkd3d"
         wget -q \
@@ -152,14 +151,14 @@ jobs:
         rm -rf "$WCP_DIR"
         mkdir -p "$WCP_DIR"/{bin,share/wine,dxvk/arm64ec,vkd3d/arm64ec,mesa/turnip}
         mkdir -p "$WCP_DIR/lib/wine"/{aarch64-unix,aarch64-windows,arm64ec-windows}
-        cp "$BUILDDIR/install/bin/"{wine,wine64,wineboot,wineserver} \
-           "$WCP_DIR/bin/"
-        cp -rv "$BUILDDIR/install/lib/"*.so              "$WCP_DIR/lib/wine/aarch64-unix/"      2>/dev/null || true
-        cp -rv "$BUILDDIR/install/lib/"*.dll.so          "$WCP_DIR/lib/wine/aarch64-windows/"    2>/dev/null || true
-        cp -rv "$WCP_DIR/lib/wine/arm64ec-windows/"*     "$WCP_DIR/lib/wine/arm64ec-windows/"    2>/dev/null || true
-        cp -rv "$EXTERNALDIR/dxvk/"*                     "$WCP_DIR/dxvk/arm64ec/"
-        cp -rv "$EXTERNALDIR/vkd3d/"*                    "$WCP_DIR/vkd3d/arm64ec/"
-        cp -rv "$EXTERNALDIR/mesa/"*                     "$WCP_DIR/mesa/turnip/"
+
+        cp "$BUILDDIR/install/bin/"{wine,wine64,wineboot,wineserver} "$WCP_DIR/bin/"
+        cp -rv "$BUILDDIR/install/lib/"*.so "$WCP_DIR/lib/wine/aarch64-unix/"       2>/dev/null || true
+        cp -rv "$BUILDDIR/install/lib/"*.dll.so "$WCP_DIR/lib/wine/aarch64-windows/" 2>/dev/null || true
+        cp -rv "$WCP_DIR/lib/wine/arm64ec-windows/"* "$WCP_DIR/lib/wine/arm64ec-windows/" 2>/dev/null || true
+        cp -rv "$EXTERNALDIR/dxvk/"* "$WCP_DIR/dxvk/arm64ec/"
+        cp -rv "$EXTERNALDIR/vkd3d/"* "$WCP_DIR/vkd3d/arm64ec/"
+        cp -rv "$EXTERNALDIR/mesa/"* "$WCP_DIR/mesa/turnip/"
 
         cat > "$WCP_DIR/env.sh" << 'EOF'
         export WINEDEBUG=-all
