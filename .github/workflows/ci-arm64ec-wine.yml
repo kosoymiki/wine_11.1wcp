@@ -81,12 +81,16 @@ jobs:
         # Клонируем wine‑staging
         git clone --depth 1 https://github.com/wine-staging/wine-staging.git staging
 
-        # Если требуется конкретная ветка/тег, можно указать явно:
-        # git clone --branch wine-11.1-staging https://github.com/wine-staging/wine-staging.git staging
+        # Проверяем, что папка существует
+        if [ ! -d staging ]; then
+          echo "ERROR: wine-staging not cloned!"
+          exit 1
+        fi
 
-        # Переместим патчи в структуру expected staging/scripts
+        # Перемещаем патчи в структуру expected staging/scripts
         mkdir -p wine/staging
         rsync -a staging/patches wine/staging/ || true
+
 
 
     - name: Apply staging patches and generate configure
