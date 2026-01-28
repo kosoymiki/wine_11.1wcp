@@ -19,6 +19,7 @@ jobs:
       WCP_DIR: "$WORKDIR/wcp"
       LLVM_MINGW_VERSION: "20251216"
       LLVM_MINGW_DIR: "$HOME/llvm-mingw"
+      WINE_VERSION: "11.1"
 
     steps:
 
@@ -66,7 +67,14 @@ jobs:
           cd "$STAGINGDIR"
           ./staging/patchinstall.py DESTDIR="$SRCDIR" --all --no-autoconf
 
+          # Remove sync patches that conflict with NTsync
           cd "$SRCDIR"
+          git apply -R "$STAGINGDIR/patches/ntdll-fsync/"* 2>/dev/null || true
+          git apply -R "$STAGINGDIR/patches/server-Fsync/"* 2>/dev/null || true
+          git apply -R "$STAGINGDIR/patches/ntdll-esync/"* 2>/dev/null || true
+          git apply -R "$STAGINGDIR/patches/server-Esync/"* 2>/dev/null || true
+          git apply -R "$STAGINGDIR/patches/ntdll-Synchronization/"* 2>/dev/null || true
+
           autoreconf -fiv
 
       - name: Validate configure
@@ -82,14 +90,21 @@ jobs:
           export CC=aarch64-w64-mingw32-clang
           export CXX=aarch64-w64-mingw32-clang++
           export PKG_CONFIG=pkg-config
-          export PKG_CONFIG_PATH="/usr/lib/aarch64/pkgconfig:${PKG_CONFIG_PATH:-}"
+          export PKG_CONFIG_PATH=""
 
           "$SRCDIR/configure" \
             --host=aarch64-w64-mingw32 \
             --enable-win64 \
             --enable-wow64 \
             --enable-archs=arm64ec,aarch64 \
-            --disable-tests
+            --disable-tests \            --without-x \
+            --without-vulkan \
+            --without-freetype \
+            --without-fontconfig \
+            --without-wayland \
+            --without-gstreamer \
+            --without-cups \
+            --without-sane
 
           make -j1
           DESTDIR="$BUILDDIR/install" make install
@@ -128,18 +143,37 @@ jobs:
           mkdir -p "$WCP_DIR/lib/wine"/{aarch64-unix,aarch64-windows,arm64ec-windows}
 
           cp "$BUILDDIR/install/bin/"{wine,wine64,wineboot,wineserver} "$WCP_DIR/bin/"
-          cp -rv "$BUILDDIR/install/lib/"* "$WCP_DIR/lib/wine/aarch64-unix/"
-          cp -rv "$BUILDDIR/install/lib/"* "$WCP_DIR/lib/wine/aarch64-windows/"
-          cp -rv "$WCP_DIR/lib/wine/arm64ec-windows/"* "$WCP_DIR/lib/wine/arm64ec-windows/"
-          cp -rv "$EXTERNALDIR/dxvk/"* "$WCP_DIR/dxvk/arm64ec/"
+          cp -rv "$BUILDDIR/install/lib/"*.so "$WCP_DIR/lib/wine/aarch64-unix/" 2>/dev/null || true
+          cp -rv "$BUILDDIR/install/lib/"*.dll.so "$WCP_DIR/lib/wine/aarch64-windows/" 2>/dev/null || true
+          cp -rv "$BUILDDIR/install/lib/"*.exe.so "$WCP_DIR/lib/wine/aarch64-windows/" 2>/dev/null || true
+          cp -rv "$WCP_DIR/lib/wine/arm64ec-windows/"* "$WCP_DIR/lib/wine/arm64ec-windows/" 2>/dev/null || true          cp -rv "$EXTERNALDIR/dxvk/"* "$WCP_DIR/dxvk/arm64ec/"
           cp -rv "$EXTERNALDIR/vkd3d/"* "$WCP_DIR/vkd3d/arm64ec/"
           cp -rv "$EXTERNALDIR/mesa/"* "$WCP_DIR/mesa/turnip/"
 
-          printf "export WINEPREFIX=~/.wine\nexport WINEARCH=win64\n" > "$WCP_DIR/env.sh"
-          printf '{ "version":"%s","arch":"arm64ec","type":"phat" }' "$WINE_VERSION" > "$WCP_DIR/info.json"
+          cat > "$WCP_DIR/env.sh" <<'EOF'
+          #!/bin/sh
+          export WINEDEBUG=-all
+          export WINEESYNC=0
+          export WINEFSYNC=0
+          export WINE_NTSYNC=1
+          export DXVK_ASYNC=1
+          export MESA_LOADER_DRIVER_OVERRIDE=turnip
+          export WINEPREFIX=~/.wine
+          export WINEARCH=win64
+          EOF
+          chmod +x "$WCP_DIR/env.sh"
+
+          cat > "$WCP_DIR/info.json" <<EOF
+          {
+           "name": "Wine-11.1-Staging-PHAT-NTsync-DXVK-VKD3D-ARM64EC",
+           "version": "$WINE_VERSION",
+           "arch": "arm64",
+           "variant": "winlator-ultimate-stable"
+          }
+           EOF
 
       - name: Upload .wcp
         uses: actions/upload-artifact@v4
         with:
           name: wine-arm64ec-phat
-          path: "$WCP_DIR"
+          path: ${{ env.WCP_DIR }}
