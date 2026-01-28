@@ -11,21 +11,22 @@ jobs:
     runs-on: ubuntu-24.04-arm
 
     env:
-      WORKDIR: "$GITHUB_WORKSPACE"
-      WINEDIR: "$WORKDIR/wine-src"
-      STAGINGDIR: "$WORKDIR/wine-staging-src"
-      BUILDDIR: "$WORKDIR/build/wine"
-      EXTERNALDIR: "$WORKDIR/build/external"
-      WCP_DIR: "$WORKDIR/wcp"
-      LLVM_MINGW_VERSION: "20251216"
-      LLVM_MINGW_DIR: "$HOME/llvm-mingw"
+      WORKDIR: $GITHUB_WORKSPACE
+      SRCDIR: $WORKDIR/src/wine
+      STAGINGDIR: $WORKDIR/src/wine-staging
+      BUILDDIR: $WORKDIR/build/wine
+      EXTERNALDIR: $WORKDIR/build/external
+      WCP_DIR: $WORKDIR/wcp
+      LLVM_MINGW_VERSION: 20251216
+      LLVM_MINGW_DIR: $HOME/llvm-mingw
       WINE_VERSION: "11.1"
 
     steps:
 
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: Install build dependencies
       run: |
         sudo apt update
         sudo apt install -y --no-install-recommends \
@@ -36,80 +37,56 @@ jobs:
           libdbus-1-dev libdb-dev \
           libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
           libudev-dev ca-certificates patchutils bison flex
+        sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config
 
-    - name: Setup LLVM‑Mingw ARM64EC
+    - name: Setup LLVM-Mingw ARM64
       run: |
         mkdir -p "$LLVM_MINGW_DIR"
-        wget -q \
-          "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz" \
-          -O llvm-mingw.tar.xz
-        tar -xJf llvm-mingw.tar.xz -C "$LLVM_MINGW_DIR" --strip-components=1
-        rm llvm-mingw.tar.xz
+        wget -q "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz"
+        tar -xJf llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz \
+          -C "$LLVM_MINGW_DIR" --strip-components=1
         echo "$LLVM_MINGW_DIR/bin" >> "$GITHUB_PATH"
 
-    - name: Verify cross compiler
+    - name: Cross-compiler test
       run: |
         set -eux
-        which aarch64-w64-mingw32-clang
         aarch64-w64-mingw32-clang --version
-        echo 'int main(){return 0;}' > /tmp/t.c
-        aarch64-w64-mingw32-clang --target=aarch64-w64-mingw32 \
-          -o /tmp/t.exe /tmp/t.c -Wl,--no-undefined
-        file /tmp/t.exe
+        echo 'int main(){return 0;}' > /tmp/test.c
+        aarch64-w64-mingw32-clang --target=aarch64-w64-mingw32 -o /tmp/x.exe /tmp/test.c -Wl,--no-undefined
+        file /tmp/x.exe
 
-    - name: Clone Wine upstream
+    - name: Clone Wine + Wine-Staging
       run: |
-        mkdir -p "$WINEDIR"
-        cd "$WINEDIR"
-        git clone --depth 1 --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git .
+        mkdir -p "$WORKDIR/src"
+        cd "$WORKDIR/src"
+        git clone --depth 1 --branch wine-11.1 https://github.com/wine-mirror/wine.git wine
+        git clone --depth 1 https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-    - name: Clone Wine‑Staging (full)
-      run: |
-        mkdir -p "$STAGINGDIR"
-        cd "$STAGINGDIR"
-        git clone https://gitlab.winehq.org/wine/wine-staging.git .
-        echo "=== staging/patches dir ==="
-        ls -l staging/patches | head -n 10
-        echo "=== top‑level patches ==="
-        ls -l patches | head -n 10
-
-    - name: Determine staging upstream commit
-      id: upstream
-      run: |
-        cd "$STAGINGDIR"
-        UPSTREAM=$(./staging/patchinstall.py --upstream-commit)
-        echo "upstream_commit=$UPSTREAM" >> $GITHUB_OUTPUT
-
-    - name: Sync Wine‑src to staging upstream
-      run: |
-        cd "$WINEDIR"
-        git fetch --depth 1
-        git checkout ${{ steps.upstream.outputs.upstream_commit }}
-
-    - name: Apply Wine‑Staging patches
+    - name: Apply Wine-Staging patches
       run: |
         set -eux
         cd "$STAGINGDIR"
-        ./staging/patchinstall.py DESTDIR="$WINEDIR" --all --no-autoconf
-        cd "$WINEDIR"
+        python3 patchinstall.py DESTDIR="$SRCDIR" --all --no-autoconf
+
+        cd "$SRCDIR"
         autoreconf -fiv
 
     - name: Validate configure exists
       run: |
-        cd "$WINEDIR"
+        cd "$SRCDIR"
         test -f configure
         ./configure --help | head -n 20
 
-    - name: Build Wine (ARM64EC)
+    - name: Build Wine ARM64EC
       run: |
         mkdir -p "$BUILDDIR"
         cd "$BUILDDIR"
         export CC=aarch64-w64-mingw32-clang
         export CXX=aarch64-w64-mingw32-clang++
         export PKG_CONFIG=pkg-config
-        export PKG_CONFIG_PATH="/usr/lib/aarch64/pkgconfig:${PKG_CONFIG_PATH:-}"
+        export PKG_CONFIG_PATH=""
 
-        "$WINEDIR/configure" \
+        "$SRCDIR/configure" \
           --host=aarch64-w64-mingw32 \
           --enable-win64 \
           --enable-wow64 \
@@ -117,8 +94,9 @@ jobs:
           --disable-tests \
           --without-vulkan
 
-        make -j$(nproc)
+        make -j2
         DESTDIR="$BUILDDIR/install" make install
+
 
     - name: Build Mesa/Turnip Vulkan
       run: |
