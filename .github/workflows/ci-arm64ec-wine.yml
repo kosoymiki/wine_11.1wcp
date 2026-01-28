@@ -22,7 +22,8 @@ jobs:
       WINE_VERSION: "11.1"
 
     steps:
-    - name: Checkout source
+
+    - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Install base deps
@@ -37,52 +38,57 @@ jobs:
           libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
           libudev-dev ca-certificates patchutils bison flex
 
-        # ensure pkgconf → pkg-config
+        # Ensure pkgconf → pkg-config
         sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config
 
-    - name: Clone Wine & Wine Staging
+    - name: Setup LLVM-Mingw ARM64EC
       run: |
-        mkdir -p "$WORKDIR/src"
-        cd "$WORKDIR/src"
-        git clone --depth 1 --branch wine-11.1 \
-        https://gitlab.winehq.org/wine/wine.git wine
-        git clone --depth 1 --branch v11.1 \
-        https://gitlab.winehq.org/wine/wine-staging.git wine-staging
-        ls -1 wine-staging/staging/patches | head -n 10
+        mkdir -p "$LLVM_MINGW_DIR"
+        wget -q "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz" \
+          -O llvm-mingw-${LLVM_MINGW_VERSION}-aarch64.tar.xz
 
-    - name: Cross compiler diagnostics
+        tar -xJf llvm-mingw-${LLVM_MINGW_VERSION}-aarch64.tar.xz \
+          -C "$LLVM_MINGW_DIR" --strip-components=1
+        rm llvm-mingw-${LLVM_MINGW_VERSION}-aarch64.tar.xz
+
+        echo "$LLVM_MINGW_DIR/bin" >> "$GITHUB_PATH"
+
+    - name: Verify LLVM-Mingw
       run: |
         set -eux
+        which aarch64-w64-mingw32-clang
         aarch64-w64-mingw32-clang --version
-        echo 'int main(){return 0;}' > /tmp/test.c
-        aarch64-w64-mingw32-clang --target=aarch64-w64-mingw32 -o /tmp/x.exe /tmp/test.c -Wl,--no-undefined
-        file /tmp/x.exe
+        aarch64-w64-mingw32-clang++ --version
+        echo "int main(){return 0;}" > /tmp/test.c
+        aarch64-w64-mingw32-clang --target=aarch64-w64-mingw32 \
+          -o /tmp/test.exe /tmp/test.c -Wl,--no-undefined
+        file /tmp/test.exe
 
-    - name: Clone Wine and staging
+    - name: Clone Wine & staging
       run: |
         mkdir -p "$WORKDIR/src"
         cd "$WORKDIR/src"
 
-        # upstream Wine 11.1
+        # Wine 11.1 (upstream)
         git clone --depth 1 --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
 
-        # staging (master, latest patchset); ensure patches exist
-        git clone --depth 1 https://gitlab.winehq.org/wine/wine-staging.git wine-staging
+        # Wine‑Staging for Wine 11.1
+        git clone --depth 1 --branch v11.1 https://gitlab.winehq.org/wine/wine-staging.git wine-staging
+
         ls -1 wine-staging/staging/patches | head -n 30
 
-    - name: Apply staging patches
+    - name: Apply Wine‑Staging patches
       run: |
         set -eux
         cd "$STAGINGDIR"
 
-        # apply patchset into Wine src
+        # Apply all staging patches into Wine src
         ./staging/patchinstall.py DESTDIR="$SRCDIR" --all --no-autoconf
 
-        # regen autotools in Wine src
+        # Regenerate configure scripts
         cd "$SRCDIR"
         autoreconf -fiv
 
-        # verify configure exists
         test -f configure
 
     - name: Show configure help
@@ -173,7 +179,7 @@ jobs:
         }
         EOF
 
-    - name: Upload .wcp artifact
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: wine-arm64ec-phat
