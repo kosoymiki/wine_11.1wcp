@@ -30,33 +30,7 @@ jobs:
 
           sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config
 
-      - name: Setup cross‑compiler tools & verify
-        run: |
-          set -eux
-
-          # Install additional required cross‑compiler tools
-          sudo apt update
-
-          sudo apt install -y --no-install-recommends \
-            clang llvm lld \
-            binutils-aarch64-w64-mingw32 \
-            llvm-dlltool
-
-          # Show versions for diagnostics
-          echo "=== Cross‑compiler versions ==="
-          aarch64-w64-mingw32-clang --version
-          aarch64-w64-mingw32-clang++ --version
-          llvm-dlltool --version || true
-          lld --version || true
-          ld.lld --version || true
-
-          # Test basic cross compile of trivial C file
-          echo "int main(void) { return 0; }" > /tmp/conftest.c
-          aarch64-w64-mingw32-clang -o /tmp/conftest.exe /tmp/conftest.c \
-            --target=aarch64-w64-mingw32 -Wl,--no-undefined
-
-          file /tmp/conftest.exe
-
+      
           
 
       - name: Setup llvm-mingw
@@ -67,6 +41,36 @@ jobs:
             -C "$HOME/llvm-mingw" --strip-components=1
           rm llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz
           echo "$HOME/llvm-mingw/bin" >> "$GITHUB_PATH"
+
+      - name: Setup cross‑compiler tools & verify
+        run: |
+          set -eux
+
+          # Ensure host LLVM tools available (optional but useful diagnostics)
+          sudo apt update
+          sudo apt install -y --no-install-recommends \
+            clang llvm lld
+
+          # Verify LLVM‑Mingw cross toolchain unpacked earlier
+          echo "=== LLVM‑Mingw toolchain contents ==="
+          ls -1 "$HOME/llvm-mingw/bin"
+
+          # Diagnostics: versions
+          echo "=== Cross‑compiler versions ==="
+          "$HOME/llvm-mingw/bin/aarch64-w64-mingw32-clang" --version
+          "$HOME/llvm-mingw/bin/aarch64-w64-mingw32-clang++" --version
+          "$HOME/llvm-mingw/bin/aarch64-w64-mingw32-dlltool" --version || true
+          "$HOME/llvm-mingw/bin/lld" --version || true
+
+          # Test basic cross compile of trivial C file
+          echo 'int main(void) { return 0; }' > /tmp/conftest.c
+          "$HOME/llvm-mingw/bin/aarch64-w64-mingw32-clang" \
+            --target=aarch64-w64-mingw32 \
+            -o /tmp/conftest.exe /tmp/conftest.c \
+            -Wl,--no-undefined
+
+          file /tmp/conftest.exe || true
+
           
      
       - name: Clone Wine + Staging
