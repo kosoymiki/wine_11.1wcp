@@ -43,7 +43,7 @@ jobs:
       run: |
         mkdir -p "$LLVM_MINGW_DIR"
         wget -q \
-"https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz" \
+        "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz" \
           -O llvm-mingw.tar.xz
         tar -xJf llvm-mingw.tar.xz -C "$LLVM_MINGW_DIR" --strip-components=1
         rm llvm-mingw.tar.xz
