@@ -121,7 +121,7 @@ jobs:
           ./tools/make_requests
 
           test -f "$WINEDIR/configure"
-          "$WINEDIR/configure" --help | head -n 30
+          "$WINEDIR/configure" --help | head -n 20 || true
           
 
       - name: Build Wine (current hypothesis mingw host)
