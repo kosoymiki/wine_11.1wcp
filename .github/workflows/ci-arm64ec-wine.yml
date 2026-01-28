@@ -25,7 +25,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install system dependencies
+    - name: Install base dependencies
       run: |
         sudo apt update
         sudo apt install -y --no-install-recommends \
@@ -43,59 +43,53 @@ jobs:
       run: |
         mkdir -p "$LLVM_MINGW_DIR"
         wget -q "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz"
-        tar -xJf "llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz" \
-          -C "$LLVM_MINGW_DIR" --strip-components=1
+        tar -xJf "llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz" -C "$LLVM_MINGW_DIR" --strip-components=1
         rm "llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz"
         echo "$LLVM_MINGW_DIR/bin" >> "$GITHUB_PATH"
 
-    - name: Cross‑compiler basic test
+    - name: Smoke test cross‑compiler
       run: |
         set -eux
         aarch64-w64-mingw32-clang --version
-        echo 'int main(){return 0;}' > /tmp/test.c
-        aarch64-w64-mingw32-clang --target=aarch64-w64-mingw32 -o /tmp/test.exe /tmp/test.c -Wl,--no-undefined
-        file /tmp/test.exe
+        echo 'int main(){return 0;}' > /tmp/t.c
+        aarch64-w64-mingw32-clang --target=aarch64-w64-mingw32 -o /tmp/t.exe /tmp/t.c -Wl,--no-undefined
+        file /tmp/t.exe
 
-    - name: Create source directories & download Wine
+    - name: Download Wine + Staging
       run: |
         mkdir -p "$WORKDIR/src"
         cd "$WORKDIR/src"
 
-        # Wine sources
+        # Wine 11.1 source
         wget -q https://dl.winehq.org/wine/source/11.x/wine-11.1.tar.xz
         mkdir -p wine
         tar -xJf wine-11.1.tar.xz -C wine --strip-components=1
         rm wine-11.1.tar.xz
 
-        # Wine‑Staging
+        # Wine‑Staging matching version
         git clone --depth 1 https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-    - name: Apply staging patches and generate configure
+    - name: Apply staging patches
       run: |
         set -eux
 
-        # 1) Ensure in SRCDIR
-        cd "$SRCDIR"
-
-        # 2) Initial autoreconf
-        autoreconf -fiv
-
-        # 3) Apply staging patches
         cd "$STAGINGDIR"
-        ./staging/patchinstall.py DESTDIR="$SRCDIR" --all --no-autoconf || true
+        ./staging/patchinstall.py DESTDIR="$SRCDIR" --all --no-autoconf
 
-        # 4) Back in SRCDIR, regenerate configure
-        cd "$SRCDIR"
-        autoreconf -fiv
-
-        # 5) Validate configure existence
-        if [ ! -f configure ]; then
-          echo "ERROR: configure not found"
+        # Check if patch directory is non‑empty
+        if [ "$(ls -A $SRCDIR)" == "" ]; then
+          echo "ERROR: staging failed; wine source is empty" >&2
           exit 1
         fi
-        ./configure --help | head -n 20
 
-    - name: Configure & build Wine
+    - name: Generate configure & validate
+      run: |
+        cd "$SRCDIR"
+        autoreconf -fiv
+        test -f configure
+        ./configure --help | head -n 30
+
+    - name: Build Wine
       run: |
         mkdir -p "$BUILDDIR"
         cd "$BUILDDIR"
@@ -119,11 +113,11 @@ jobs:
         make -j1
         DESTDIR="$BUILDDIR/install" make install
 
-    - name: Build Turnip Vulkan (Mesa TU8)
+    - name: Build Turnip Vulkan (Mesa TU)
       run: |
         mkdir -p "$EXTERNALDIR/mesa"
         git clone --depth 1 https://github.com/whitebelyash/mesa-tu8 mesa-tu8-source
-        mkdir -p mesa-tu8-build
+        mkdir mesa-tu8-build
         cd mesa-tu8-build
         meson setup . ../mesa-tu8-source \
           -Dvulkan-drivers=turnip \
@@ -147,7 +141,7 @@ jobs:
         wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore-2601.wcp -O FEXCore.wcp
         tar -xJf FEXCore.wcp -C "$WCP_DIR/lib/wine/arm64ec-windows"
 
-    - name: Prepare PHAT .wcp tree
+    - name: Prepare PHAT .wcp
       run: |
         rm -rf "$WCP_DIR"
         mkdir -p "$WCP_DIR"/{bin,share/wine,dxvk/arm64ec,vkd3d/arm64ec,mesa/turnip}
@@ -164,7 +158,7 @@ jobs:
         printf "export WINEPREFIX=~/.wine\nexport WINEARCH=win64\n" > "$WCP_DIR/env.sh"
         printf '{ "version":"%s","arch":"arm64ec","type":"phat" }' "$WINE_VERSION" > "$WCP_DIR/info.json"
 
-    - name: Upload artifact
+    - name: Upload .wcp artifact
       uses: actions/upload-artifact@v4
       with:
         name: wine-arm64ec-phat
