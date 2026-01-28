@@ -1,4 +1,4 @@
-name: Wine 11.1 Staging PHAT + NTsync + DXVK + VKD3D ARM64EC (FINAL)
+name: Wine 11.1 ARM64EC PHAT Build
 
 on:
   workflow_dispatch:
@@ -17,288 +17,228 @@ jobs:
       MAKEFLAGS: -j$(nproc)
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
-      # ============================================================
-      # SYSTEM SETUP (STABLE, JAMMY, ARM64EC-SAFE)
-      # ==========================================================
-      - name: System setup (stable, jammy, ARM64EC)
-        run: |
-          set -e
 
-          sudo apt update
-          sudo add-apt-repository -y universe
-          sudo add-apt-repository -y multiverse
-          sudo dpkg --add-architecture i386
-          sudo apt update
+    # ---------------------------------------
+    # Checkout sources
+    # ---------------------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-          sudo apt install -y --no-install-recommends \
-            build-essential git python3 ca-certificates \
-            clang lld llvm \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            flex bison autoconf automake libtool pkg-config \
-            libx11-dev libxext-dev libxrandr-dev libxrender-dev \
-            libxi-dev libxinerama-dev libxcursor-dev \
-            libxcomposite-dev libxfixes-dev libxkbcommon-dev \
-            libdrm-dev libvulkan-dev \
-            libfontconfig1-dev \
-            libpulse-dev libasound2-dev \
-            libdbus-1-dev libpcap-dev \
-            libsdl2-dev \
-            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
-            inotify-tools libinotifytools0-dev \
-            libpcsclite-dev \
-            gettext
+    # ---------------------------------------
+    # SYSTEM SETUP
+    # (install dependencies, pkg-config, freetype, etc.)
+    # ---------------------------------------
+    - name: System setup
+      run: |
+        set -euxo pipefail
 
-         
+        # enable 32-bit
+        sudo dpkg --add-architecture i386 || true
+        sudo apt-get update
 
+        # pkg-config (as pkgconf)
+        sudo apt-get install -y --no-install-recommends \
+          pkgconf pkg-config
 
-          # Установка FreeType dev для amd64 и i386
-          sudo apt install -y \
-            libfreetype6-dev \
-            libfreetype6-dev:i386
+        # core build deps
+        sudo apt-get install -y --no-install-recommends \
+          build-essential git python3 ca-certificates \
+          clang lld llvm \
+          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+          flex bison autoconf automake libtool
 
-          # Симлинк для заголовков, чтобы configure их увидел
-          sudo ln -sf /usr/include/freetype2 /usr/include/freetype
+        # X11/Vulkan/DRM dev
+        sudo apt-get install -y --no-install-recommends \
+          libx11-dev libxext-dev libxrandr-dev libxrender-dev \
+          libxi-dev libxinerama-dev libxcursor-dev \
+          libxcomposite-dev libxfixes-dev libxkbcommon-dev \
+          libdrm-dev libvulkan-dev
 
+        # sound / dbus / pcap / SDL2
+        sudo apt-get install -y --no-install-recommends \
+          libpulse-dev libasound2-dev \
+          libdbus-1-dev libpcap-dev \
+          libsdl2-dev
 
-          # Устанавливаем FreeType dev для обоих архитектур
-          sudo apt install -y \
-            libfreetype6-dev \
-            libfreetype6-dev:i386
+        # FFmpeg bits
+        sudo apt-get install -y --no-install-recommends \
+          libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
 
-          # Симлинк заголовков FreeType (облегчает configure‑поиск)
-          sudo ln -sf /usr/include/freetype2 /usr/include/freetype
+        # Misc
+        sudo apt-get install -y --no-install-recommends \
+          inotify-tools libinotifytools0-dev \
+          libpcsclite-dev \
+          gettext
 
+        # FreeType dev for amd64 + i386
+        sudo apt-get install -y --no-install-recommends \
+          libfreetype6-dev \
+          libfreetype6-dev:i386
 
+        # Make FreeType headers discoverable
+        sudo ln -sf /usr/include/freetype2 /usr/include/freetype
 
-      # ============================================================
-      # LLVM MinGW
-      # ============================================================
-      - name: LLVM MinGW
-        run: |
-          wget -qO llvm-mingw.tar.xz \
-            https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz
-          tar -xJf llvm-mingw.tar.xz
-          echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
+        sudo apt-get update
 
-      # ============================================================
-      # SOURCES (Wine, Staging, and Dependencies)
-      # ============================================================
-      - name: Clone Wine + Staging
-        run: |
-          git clone --depth 1 -b wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
-          git clone --depth 1 -b v11.1 https://gitlab.winehq.org/wine/wine-staging.git staging
+    # ---------------------------------------
+    # LLVM MinGW (prebuilt toolchain)
+    # ---------------------------------------
+    - name: LLVM MinGW
+      run: |
+        wget -qO llvm-mingw.tar.xz \
+          https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64.tar.xz
+        tar -xJf llvm-mingw.tar.xz
+        echo "$PWD/llvm-mingw-20251216-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
 
-      # ============================================================
-      # APPLY STAGING (SAFE)
-      # ============================================================
-      - name: Apply Wine-Staging
-        run: |
-          cd staging
-          ./staging/patchinstall.py DESTDIR=../wine --all --no-autoconf
-          cd ../wine
-          autoreconf -fiv
+    # ---------------------------------------
+    # Clone Wine + Staging
+    # ---------------------------------------
+    - name: Clone Wine + Staging
+      run: |
+        git clone --depth 1 -b wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
+        git clone --depth 1 -b v11.1 https://gitlab.winehq.org/wine/wine-staging.git staging
 
-      # ============================================================
-      # HOST WINETOOLS
-      # ============================================================
-      - name: Build host winetools
-        run: |
-          mkdir host && cd host
-          ../wine/configure --enable-win64 --disable-tests
-          make __tooldeps__
+    # ---------------------------------------
+    # Apply Wine Staging
+    # ---------------------------------------
+    - name: Apply Wine-Staging patches
+      run: |
+        cd staging
+        ./staging/patchinstall.py DESTDIR=../wine --all --no-autoconf
+        cd ../wine
+        autoreconf -fiv
 
-      # ============================================================
-      # ARM64EC + WOW64 BUILD
-      # ============================================================
-      - name: System setup (stable, jammy, ARM64EC)
-        run: |
-          set -euxo pipefail
+    # ---------------------------------------
+    # Build host winetools
+    # ---------------------------------------
+    - name: Build host Winetricks/Tools
+      run: |
+        mkdir host && cd host
+        ../wine/configure --enable-win64 --disable-tests
+        make __tooldeps__
 
-          # -------------------------------
-          # Обновление и добавление архитектуры
-          # -------------------------------
+    # ---------------------------------------
+    # Configure & Build Wine (ARM64EC + WoW64)
+    # ---------------------------------------
+    - name: Configure & build Wine
+      run: |
+        mkdir -p build
+        cd build
 
-          # Добавляем поддержку i386 (multi‑arch), нужную для 32‑битной части Wine
-          sudo dpkg --add‑architecture i386 || true
-          sudo apt update
+        export PKG_CONFIG=pkg-config
+        export CPPFLAGS="-I/usr/include/freetype2 ${CPPFLAGS:-}"
 
-          # -------------------------------
-          # Установка pkg‑config
-          # -------------------------------
-          #
-          # pkg‑config нужен, чтобы configure находил dev‑файлы (например freetype2)
-          sudo apt install -y --no-install-recommends \
-            pkgconf pkg-config
+        ../wine/configure \
+          --host=aarch64-w64-mingw32 \
+          --with-wine-tools=../host \
+          --enable-win64 \
+          --enable-wow64 \
+          --enable-archs=arm64ec,aarch64 \
+          --disable-tests \
+          --with-freetype \
+          --with-fontconfig \
+          --with-sdl2 \
+          --with-alsa \
+          --with-pulse \
+          --with-db \
+          --with-inotify \
+          --with-pcap \
+          --with-ffmpeg
 
-          # -------------------------------
-          # Основные dev‑библиотеки для Wine сборки
-          # -------------------------------
-          #
-          # 64‑битные и 32‑битные заголовки/библиотеки для:
-          #   freetype, fontconfig, SDL2, gnutls, pcap, dbus и др.
-          sudo apt install -y --no-install-recommends \
-            build-essential git python3 ca-certificates \
-            clang lld llvm \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            flex bison autoconf automake libtool
+        make -j$(nproc)
+        DESTDIR=$PWD/install make install
 
-          sudo apt install -y --no-install-recommends \
-            libx11-dev libxext-dev libxrandr-dev libxrender-dev \
-            libxi-dev libxinerama-dev libxcursor-dev \
-            libxcomposite-dev libxfixes-dev libxkbcommon-dev \
-            libdrm-dev libvulkan-dev
+    # ---------------------------------------
+    # Prepare PHAT structure
+    # ---------------------------------------
+    - name: Create PHAT WCP structure
+      run: |
+        set -euxo pipefail
 
-          sudo apt install -y --no-install-recommends \
-            libpulse-dev libasound2-dev \
-            libdbus-1-dev libpcap-dev \
-            libsdl2-dev
+        WINE_INSTALL="$PWD/build/install/usr"
+        PHAT="$PWD/build/install/wcp"
+        mkdir -p "$PHAT"
 
-          sudo apt install -y --no-install-recommends \
-            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+        # Binaries
+        mkdir -p "$PHAT/bin"
+        cp "$WINE_INSTALL/bin/wine" "$PHAT/bin/"
+        cp "$WINE_INSTALL/bin/wine64" "$PHAT/bin/"
+        cp "$WINE_INSTALL/bin/wineserver" "$PHAT/bin/"
+        cp "$WINE_INSTALL/bin/wineboot" "$PHAT/bin/"
 
-          sudo apt install -y --no-install-recommends \
-            inotify-tools libinotifytools0-dev \
-            libpcsclite-dev \
-            gettext
+        # Libraries
+        mkdir -p "$PHAT/lib/wine/aarch64-unix"
+        mkdir -p "$PHAT/lib/wine/aarch64-windows"
+        mkdir -p "$PHAT/lib/wine/arm64ec-windows"
 
-          # -------------------------------
-          # FreeType (критично для UI/шрифтов)
-          # -------------------------------
-          #
-          # Устанавливаем dev‑пакет FreeType для amd64 и i386.
-          # Пакет libfreetype6-dev существует в репозиториях Ubuntu 22.04 (Jammy). :contentReference[oaicite:0]{index=0}
-          sudo apt install -y --no-install-recommends \
-            libfreetype6-dev \
-            libfreetype6-dev:i386
+        find "$WINE_INSTALL/lib" -type f -name "*.so" ! -name "*.dll.so" \
+          -exec cp {} "$PHAT/lib/wine/aarch64-unix/" \;
 
-          # -------------------------------
-          # Симлинк для FreeType заголовков (configure ищет в /usr/include/freetype)
-          # -------------------------------
-          #
-          # Заголовки по умолчанию лежат в /usr/include/freetype2,
-          # поэтому делаем симлинк для совместимости. :contentReference[oaicite:1]{index=1}
-          sudo ln -sf /usr/include/freetype2 /usr/include/freetype
+        find "$WINE_INSTALL/lib" -type f -name "*.dll.so" \
+          -exec cp {} "$PHAT/lib/wine/aarch64-windows/" \;
 
-          # -------------------------------
-          # Обновление индексов после всех изменений
-          # -------------------------------
-          sudo apt update
+        find "$WINE_INSTALL/lib/arm64ec-windows" -type f -name "*.dll.so" \
+          -exec cp {} "$PHAT/lib/wine/arm64ec-windows/" \;
 
+        # Shared data
+        mkdir -p "$PHAT/share/wine"
+        cp -a "$WINE_INSTALL/share/wine/." "$PHAT/share/wine/"
 
+        # DXVK
+        mkdir -p "$PHAT/dxvk/arm64ec"
+        if [ -d "$PWD/dxvk.wcp/arm64ec" ]; then
+          cp -a "$PWD/dxvk.wcp/arm64ec/." "$PHAT/dxvk/arm64ec/"
+        fi
 
-      # ============================================================
-      # Download and apply additional packages for Wine
-      # ============================================================
-      - name: Download and extract additional dependencies
-        run: |
-          # Загрузка необходимых пакетов
-          wget -q https://github.com/StevenMXZ/freedreno_turnip-CI/releases/download/v23/Turnip_Gen8_V23.zip -O Turnip_Gen8_V23.zip
-          unzip Turnip_Gen8_V23.zip -d Turnip
+        # VKD3D
+        mkdir -p "$PHAT/vkd3d/arm64ec"
+        if [ -d "$PWD/vkd3d.wcp/arm64ec" ]; then
+          cp -a "$PWD/vkd3d.wcp/arm64ec/." "$PHAT/vkd3d/arm64ec/"
+        fi
 
-          wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp -O dxvk.wcp
-          wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore-2601.wcp -O FEXCore.wcp
-          wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/WOWBOX64-NIGHTLY/wowbox64-0.4.1-260127-627b857.wcp -O wowbox64.wcp
-          wget -q https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp -O vkd3d.wcp
+        # Mesa / Turnip
+        mkdir -p "$PHAT/mesa/turnip"
+        if [ -d "$PWD/turnip/mesa/turnip" ]; then
+          cp -a "$PWD/turnip/mesa/turnip/." "$PHAT/mesa/turnip/"
+        fi
 
-          # Перемещение файлов WCP в сборочную директорию
-          mkdir -p build/install/wine
-          mv *.wcp build/install/wine/
+        # env.sh
+        cat > "$PHAT/env.sh" << 'EOF'
+        #!/bin/sh
+        export WINEDEBUG=-all
+        export WINE_NTSYNC=1
+        export WINEESYNC=0
+        export WINEFSYNC=0
+        EOF
+        chmod +x "$PHAT/env.sh"
 
-      # ============================================================
-      # PHAT WCP
-      # ============================================================
-      - name: Create PHAT WCP structure
-        run: |
-          set -e
-
-          # Путь к Wine install (из прошлого шага)
-          WINE_INSTALL="$PWD/build/install/usr"
-
-          # Рабочая PHAT‑дерево
-          PHAT="$PWD/build/install/wcp"
-          mkdir -p "$PHAT"
-
-          ## BIN ##
-          mkdir -p "$PHAT/bin"
-          cp "$WINE_INSTALL/bin/wine" "$PHAT/bin/"
-          cp "$WINE_INSTALL/bin/wine64" "$PHAT/bin/"
-          cp "$WINE_INSTALL/bin/wineserver" "$PHAT/bin/"
-          cp "$WINE_INSTALL/bin/wineboot" "$PHAT/bin/"
-
-          ## LIB/WINE ##
-          mkdir -p "$PHAT/lib/wine/aarch64-unix"
-          mkdir -p "$PHAT/lib/wine/aarch64-windows"
-          mkdir -p "$PHAT/lib/wine/arm64ec-windows"
-
-          # ELF .so — unix ABI
-          find "$WINE_INSTALL/lib" -type f -name "*.so" ! -name "*.dll.so" \
-            -exec cp {} "$PHAT/lib/wine/aarch64-unix/" \;
-
-          # PE DLLs — aarch64 windows ABI
-          find "$WINE_INSTALL/lib" -type f -name "*.dll.so" \
-            -exec cp {} "$PHAT/lib/wine/aarch64-windows/" \;
-
-          # PE DLLs arm64ec ABI
-          find "$WINE_INSTALL/lib/arm64ec-windows" -type f -name "*.dll.so" \
-            -exec cp {} "$PHAT/lib/wine/arm64ec-windows/" \;
-
-          ## SHARE ##
-          mkdir -p "$PHAT/share/wine"
-          cp -a "$WINE_INSTALL/share/wine/." "$PHAT/share/wine/"
-
-          ## DXVK (если есть)
-          mkdir -p "$PHAT/dxvk/arm64ec"
-          cp -a "$PWD/dxvk.wcp/arm64ec/." "$PHAT/dxvk/arm64ec/" || true
-
-          ## VKD3D
-          mkdir -p "$PHAT/vkd3d/arm64ec"
-          cp -a "$PWD/vkd3d.wcp/arm64ec/." "$PHAT/vkd3d/arm64ec/" || true
-
-          ## MESA / TURNIP (Vulkan driver)
-          mkdir -p "$PHAT/mesa/turnip"
-          cp -a "$PWD/turnip/mesa/turnip/." "$PHAT/mesa/turnip/" || true
-
-          ## ENV.SH (критично для запуска)
-          cat > "$PHAT/env.sh" <<'EOF'
-          #!/bin/sh
-          export WINEDEBUG=-all
-          export WINE_NTSYNC=1
-          export WINEESYNC=0
-          export WINEFSYNC=0
-          # Add any Winlator/Ludashi specific ENV here
-          EOF
-          chmod +x "$PHAT/env.sh"
-
-          ## INFO.JSON (мета, можно кастомизировать)
-          cat > "$PHAT/info.json" <<'EOF'
-          {
-            "name": "Wine 11.1 ARM64EC PHAT",
-            "version": "11.1",
-            "build": "PHAT",
-            "arch": "arm64ec",
-            "components": {
-              "wine": true,
-              "dxvk": true,
-              "vkd3d": true,
-              "turnip": true
-            }
+        # info.json
+        cat > "$PHAT/info.json" << 'EOF'
+        {
+          "name": "Wine 11.1 ARM64EC PHAT",
+          "version": "11.1",
+          "build": "PHAT",
+          "arch": "arm64ec",
+          "components": {
+            "wine": true,
+            "dxvk": true,
+            "vkd3d": true,
+            "turnip": true
           }
-          EOF
+        }
+        EOF
 
-          ## Проверка структуры
-          tree "$PHAT"
+        # Validate arm64ec libs
+        test -d "$PHAT/lib/wine/arm64ec-windows" || (echo "Missing arm64ec-windows libs!" && exit 1)
 
-          # Упаковать .wcp
-          tar -cJf "$GITHUB_WORKSPACE/wine-11.1‑phat‑arm64ec.wcp" -C "$PHAT" .
+        # Pack to .wcp
+        tar -cJf "$GITHUB_WORKSPACE/wine-11.1-arm64ec-phat.wcp" -C "$PHAT" .
 
-      # ============================================================
-      # UPLOAD
-      # ============================================================
-      - name: Upload Wine build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wine-11.1-staging-phat-ntsync-arm64ec
-          path: ./install/wine-11.1-staging-phat-ntsync-arm64ec.wcp
+    # ---------------------------------------
+    # Upload artifact
+    # ---------------------------------------
+    - name: Upload Wine PHAT artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: wine-11.1-arm64ec-phat
+        path: ./wine-11.1-arm64ec-phat.wcp
