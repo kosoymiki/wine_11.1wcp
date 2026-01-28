@@ -2,172 +2,147 @@ name: Build Wine 11.1 Staging ARM64EC (PHAT .wcp)
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
-  build:
+  build-arm64ec:
     runs-on: ubuntu-22.04
-    env:
-      WINE_VERSION: "11.1"
-      LLVM_MINGW_VERSION: "20251216"
-      LLVM_MINGW_DIR: "$HOME/llvm-mingw"
-      BUILD_DIR: "$GITHUB_WORKSPACE/build"
-      WCP_DIR: "$GITHUB_WORKSPACE/wcp"
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Enable arm64 multi‑arch and add ports
-        run: |
-          sudo dpkg --add‑architecture arm64
-          # Remove any stale file
-          sudo rm -f /etc/apt/sources.list.d/arm64‑ports.list
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
 
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu‑ports jammy main universe multiverse restricted" \
-            | sudo tee /etc/apt/sources.list.d/arm64‑ports.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu‑ports jammy‑updates main universe multiverse restricted" \
-            | sudo tee -a /etc/apt/sources.list.d/arm64‑ports.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu‑ports jammy‑security main universe multiverse restricted" \
-            | sudo tee -a /etc/apt/sources.list.d/arm64‑ports.list
+      - name: Run build inside ARM64 container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: multiarch/ubuntu-core:jammy-arm64
+          options: --privileged
+          run: |
+            set -e
 
-          # Refresh sources
-          sudo apt update
+            # Update and install native arm64 build deps
+            apt update
+            DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends \
+              build-essential wget git python3 gettext \
+              pkgconf cmake ninja-build autoconf automake libtool \
+              libc6-dev libfreetype-dev libfontconfig-dev \
+              libsdl2-dev libpulse-dev libasound2-dev \
+              libdbus-1-dev libdb-dev \
+              libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+              libudev-dev ca-certificates
 
-      - name: Install cross‑compile dependencies
-        run: |
-          sudo apt install -y --no-install-recommends \
-            build-essential wget git python3 gettext \
-            pkgconf cmake ninja-build autoconf automake libtool \
-            libc6-dev:arm64 linux-libc-dev:arm64 \
-            libfreetype-dev:arm64 libfontconfig-dev:arm64 \
-            libsdl2-dev:arm64 libpulse-dev:arm64 libasound2-dev:arm64 \
-            libdbus-1-dev:arm64 libdb-dev:arm64 \
-            libavcodec-dev:arm64 libavformat-dev:arm64 libavutil-dev:arm64 \
-            libswscale-dev:arm64 libudev-dev:arm64
-          sudo apt clean
+            # Ensure pkgconf -> pkg-config
+            ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config
 
-      - name: Symlink pkgconf → pkg-config
-        run: |
-          sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config
+            # Prepare build environment
+            export WINE_VERSION="11.1"
+            export LLVM_MINGW_VERSION="20251216"
+            export LLVM_MINGW_DIR="$HOME/llvm-mingw"
+            export BUILD_DIR="$PWD/build"
+            export WCP_DIR="$PWD/wcp"
 
-      - name: Download & unpack LLVM‑Mingw
-        run: |
-          mkdir -p "$HOME/llvm‑mingw"
-          wget -q \
-            "https://github.com/mstorsjo/llvm‑mingw/releases/download/${LLVM_MINGW_VERSION}/llvm‑mingw‑${LLVM_MINGW_VERSION}‑ucrt‑ubuntu‑22.04‑x86_64.tar.xz"
-          tar -xJf "llvm‑mingw‑${LLVM_MINGW_VERSION}‑ucrt‑ubuntu‑22.04‑x86_64.tar.xz" \
-            -C "$HOME/llvm‑mingw" --strip-components=1
-          rm "llvm‑mingw‑${LLVM_MINGW_VERSION}‑ucrt‑ubuntu‑22.04‑x86_64.tar.xz"
+            mkdir -p "$LLVM_MINGW_DIR"
+            wget -q "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz"
+            tar -xJf llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz -C "$LLVM_MINGW_DIR" --strip-components=1
+            rm llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz
 
-      - name: Add llvm‑mingw to PATH
-        run: |
-          echo "${LLVM_MINGW_DIR}/bin" >> "$GITHUB_PATH"
+            export PATH="$LLVM_MINGW_DIR/bin:$PATH"
 
-      - name: Prepare Wine sources
-        run: |
-          git submodule update --init --recursive
-          mkdir -p wine
-          if [ ! -f wine/configure ]; then
-            wget -q "https://dl.winehq.org/wine/source/11.1/wine‑11.1.tar.xz"
-            tar -xJf wine‑11.1.tar.xz -C wine --strip-components=1
-          fi
+            # Prepare Wine sources
+            git submodule update --init --recursive
+            mkdir -p wine
+            if [ ! -f wine/configure ]; then
+              wget -q "https://dl.winehq.org/wine/source/${WINE_VERSION}/wine-${WINE_VERSION}.tar.xz"
+              tar -xJf wine-${WINE_VERSION}.tar.xz -C wine --strip-components=1
+            fi
 
-      - name: Apply Wine Staging patches
-        run: |
-          git clone https://gitlab.winehq.org/wine/wine‑staging.git wine‑staging
-          cd wine‑staging/patches
-          git apply ../*.patch || true
+            # Apply Wine Staging patches
+            git clone https://gitlab.winehq.org/wine/wine-staging.git wine-staging
+            cd wine-staging/patches
+            git apply ../*.patch || true
+            cd -
 
-      - name: Configure & Build Wine with Wow64
-        run: |
-          mkdir ‑p "$BUILD_DIR"
-          cd "$BUILD_DIR"
-          export PKG_CONFIG=pkg‑config
-          export PKG_CONFIG_PATH="/usr/lib/arm64/pkgconfig:${PKG_CONFIG_PATH:-}"
-          export CC=aarch64‑w64‑mingw32‑clang
-          export CXX=aarch64‑w64‑mingw32‑clang++
-          export AR=aarch64‑w64‑mingw32‑ar
-          export RANLIB=aarch64‑w64‑mingw32‑ranlib
-          export STRIP=aarch64‑w64‑mingw32‑strip
-          ../wine/configure \
-            --host=aarch64‑w64‑mingw32 \
-            --with‑wine‑tools=../host \
-            --enable‑win64 \
-            --enable‑wow64 \
-            --enable‑archs=arm64ec,aarch64 \
-            --disable‑tests \
-            --enable‑ntsync \
-            --without‑x \
-            --without‑vulkan
-          make -j1
-          DESTDIR="$PWD/install" make install
+            # Configure and compile Wine
+            mkdir -p "$BUILD_DIR" && cd "$BUILD_DIR"
+            export PKG_CONFIG=pkg-config
+            export PKG_CONFIG_PATH="/usr/lib/arm64/pkgconfig:${PKG_CONFIG_PATH:-}"
+            export CC=aarch64-w64-mingw32-clang
+            export CXX=aarch64-w64-mingw32-clang++
+            export AR=aarch64-w64-mingw32-ar
+            export RANLIB=aarch64-w64-mingw32-ranlib
+            export STRIP=aarch64-w64-mingw32-strip
 
-      - name: Integrate DXVK, VKD3D, Turnip
-        run: |
-          mkdir ‑p "$BUILD_DIR/external"
-          wget -q \
-            "https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK‑GPLASYNC‑ARM64EC/dxvk‑gplasync‑arm64ec‑2.7.1‑1.wcp"
-          mkdir ‑p "$BUILD_DIR/external/dxvk"
-          tar ‑xJf dxvk‑gplasync‑arm64ec‑2.7.1‑1.wcp \
-            ‑C "$BUILD_DIR/external/dxvk"
+            ../wine/configure \
+              --host=aarch64-w64-mingw32 \
+              --with-wine-tools=../host \
+              --enable-win64 \
+              --enable-wow64 \
+              --enable-archs=arm64ec,aarch64 \
+              --disable-tests \
+              --enable-ntsync \
+              --without-x \
+              --without-vulkan
 
-          wget -q \
-            "https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D‑PROTON‑ARM64EC/vkd3d‑proton‑arm64ec‑3.0b.wcp"
-          mkdir ‑p "$BUILD_DIR/external/vkd3d"
-          tar ‑xJf vkd3d‑proton‑arm64ec‑3.0b.wcp \
-            ‑C "$BUILD_DIR/external/vkd3d"
+            make -j1
+            DESTDIR="$PWD/install" make install
 
-          wget -q \
-            "https://github.com/Arihany/WinlatorWCPHub/releases/download/MESA‑TURNIP‑ARM64EC/mesa‑turnip‑arm64ec.wcp"
-          mkdir ‑p "$BUILD_DIR/external/mesa"
-          tar ‑xJf mesa‑turnip‑arm64ec.wcp \
-            ‑C "$BUILD_DIR/external/mesa"
+            cd ..
 
-      - name: Download & unpack FEXCore‑2601 .wcp
-        run: |
-          mkdir ‑p "$WCP_DIR/lib/wine/arm64ec‑windows"
-          wget -q \
-            "https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore‑2601.wcp" \
-            ‑O FEXCore‑2601.wcp
-          tar ‑xJf FEXCore‑2601.wcp \
-            ‑C "$WCP_DIR/lib/wine/arm64ec‑windows"
+            # Integrate WCP components
+            mkdir -p "$BUILD_DIR/external"
+            wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp"
+            mkdir -p "$BUILD_DIR/external/dxvk"
+            tar -xJf dxvk-gplasync-arm64ec-2.7.1-1.wcp -C "$BUILD_DIR/external/dxvk"
 
-      - name: Prepare PHAT .wcp tree
-        run: |
-          rm ‑rf "$WCP_DIR"
-          mkdir ‑p "$WCP_DIR/bin" \
-                   "$WCP_DIR/lib/wine/aarch64‑unix" \
-                   "$WCP_DIR/lib/wine/aarch64‑windows" \
-                   "$WCP_DIR/lib/wine/arm64ec‑windows" \
-                   "$WCP_DIR/share/wine" \
-                   "$WCP_DIR/dxvk/arm64ec" \
-                   "$WCP_DIR/vkd3d/arm64ec" \
-                   "$WCP_DIR/mesa/turnip"
+            wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp"
+            mkdir -p "$BUILD_DIR/external/vkd3d"
+            tar -xJf vkd3d-proton-arm64ec-3.0b.wcp -C "$BUILD_DIR/external/vkd3d"
 
-          cp ‑v "$BUILD_DIR/install/bin/wine" "$WCP_DIR/bin/"
-          cp ‑v "$BUILD_DIR/install/bin/wine64" "$WCP_DIR/bin/"
-          cp ‑v "$BUILD_DIR/install/bin/wineserver" "$WCP_DIR/bin/"
-          cp ‑v "$BUILD_DIR/install/bin/wineboot" "$WCP_DIR/bin/"
+            wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/MESA-TURNIP-ARM64EC/mesa-turnip-arm64ec.wcp"
+            mkdir -p "$BUILD_DIR/external/mesa"
+            tar -xJf mesa-turnip-arm64ec.wcp -C "$BUILD_DIR/external/mesa"
 
-          cp ‑rv "$BUILD_DIR/install/lib/"* "$WCP_DIR/lib/wine/aarch64‑unix/"
-          cp ‑rv "$BUILD_DIR/install/lib/"* "$WCP_DIR/lib/wine/aarch64‑windows/"
-          cp ‑rv "$WCP_DIR/lib/wine/arm64ec‑windows/"* "$WCP_DIR/lib/wine/arm64ec‑windows/"
+            # Download and unpack FEXCore
+            mkdir -p "$WCP_DIR/lib/wine/arm64ec-windows"
+            wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore-2601.wcp" -O FEXCore-2601.wcp
+            tar -xJf FEXCore-2601.wcp -C "$WCP_DIR/lib/wine/arm64ec-windows"
 
-          cp ‑rv "$BUILD_DIR/external/dxvk/"* "$WCP_DIR/dxvk/arm64ec/"
-          cp ‑rv "$BUILD_DIR/external/vkd3d/"* "$WCP_DIR/vkd3d/arm64ec/"
-          cp ‑rv "$BUILD_DIR/external/mesa/"* "$WCP_DIR/mesa/turnip/"
+            # Prepare PHAT structure
+            rm -rf "$WCP_DIR"
+            mkdir -p "$WCP_DIR/bin" \
+                     "$WCP_DIR/lib/wine/aarch64-unix" \
+                     "$WCP_DIR/lib/wine/aarch64-windows" \
+                     "$WCP_DIR/lib/wine/arm64ec-windows" \
+                     "$WCP_DIR/share/wine" \
+                     "$WCP_DIR/dxvk/arm64ec" \
+                     "$WCP_DIR/vkd3d/arm64ec" \
+                     "$WCP_DIR/mesa/turnip"
 
-          printf "export WINEPREFIX=~/.wine\nexport WINEARCH=win64\n" > "$WCP_DIR/env.sh"
-          printf '{ "version":"%s", "arch":"arm64ec", "type":"phat" }' \
-            "$WINE_VERSION" > "$WCP_DIR/info.json"
+            cp -v "$BUILD_DIR/install/bin/"{wine,wine64,wineserver,wineboot} "$WCP_DIR/bin/"
+
+            cp -rv "$BUILD_DIR/install/lib/"* "$WCP_DIR/lib/wine/aarch64-unix/"
+            cp -rv "$BUILD_DIR/install/lib/"* "$WCP_DIR/lib/wine/aarch64-windows/"
+            cp -rv "$WCP_DIR/lib/wine/arm64ec-windows/"* "$WCP_DIR/lib/wine/arm64ec-windows/"
+
+            cp -rv "$BUILD_DIR/external/dxvk/"* "$WCP_DIR/dxvk/arm64ec/"
+            cp -rv "$BUILD_DIR/external/vkd3d/"* "$WCP_DIR/vkd3d/arm64ec/"
+            cp -rv "$BUILD_DIR/external/mesa/"* "$WCP_DIR/mesa/turnip/"
+
+            printf "export WINEPREFIX=~/.wine\nexport WINEARCH=win64\n" > "$WCP_DIR/env.sh"
+            printf '{ "version":"%s", "arch":"arm64ec", "type":"phat" }' "$WINE_VERSION" > "$WCP_DIR/info.json"
+
+            # List final wcp contents
+            find "$WCP_DIR" -maxdepth 4 -type f
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: wine-arm64ec-phat
-          path: $WCP_DIR
-
+          path: wcp
