@@ -1,172 +1,94 @@
-name: Build Wine 11.1 ARM64EC PHAT (Winlator)
+name: Build Wine ARM64EC (cross LLVM‑Mingw)
 
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     env:
       MAKEFLAGS: -j$(nproc)
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # -----------------------------
-      # System setup (amd64 runner + arm64 multiarch + ports repo)
-      # -----------------------------
-      - name: System setup (multiarch arm64 + ports + deps)
-        shell: bash
+      - name: Setup multiarch and apt sources
         run: |
-          set -euxo pipefail
-
-          # ВАЖНО: использовать обычный ASCII дефис "-"
+          set -eux
           sudo dpkg --add-architecture arm64
-
-          # Переписываем источники APT так, чтобы:
-          #  - amd64 шёл с archive.ubuntu.com / security.ubuntu.com
-          #  - arm64 шёл с ports.ubuntu.com (ubuntu-ports)
-          # Это убирает 404/IGN и делает :arm64 пакеты доступными.
-          sudo rm -f /etc/apt/sources.list
-          sudo rm -f /etc/apt/sources.list.d/ubuntu.sources || true
-
-          sudo tee /etc/apt/sources.list.d/ubuntu-amd64.sources >/dev/null <<'EOF'
-          Types: deb
-          URIs: http://archive.ubuntu.com/ubuntu/
-          Suites: jammy jammy-updates jammy-backports
-          Components: main restricted universe multiverse
-          Architectures: amd64
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          EOF
-
-          sudo tee /etc/apt/sources.list.d/ubuntu-amd64-security.sources >/dev/null <<'EOF'
-          Types: deb
-          URIs: http://security.ubuntu.com/ubuntu/
-          Suites: jammy-security
-          Components: main restricted universe multiverse
-          Architectures: amd64
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          EOF
-
-          sudo tee /etc/apt/sources.list.d/ubuntu-ports-arm64.sources >/dev/null <<'EOF'
-          Types: deb
-          URIs: http://ports.ubuntu.com/ubuntu-ports/
-          Suites: jammy jammy-updates jammy-backports jammy-security
-          Components: main restricted universe multiverse
-          Architectures: arm64
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          EOF
-
+          sudo dpkg --add-architecture i386
           sudo apt-get update
 
-          # Базовые инструменты
-          sudo apt-get install -y --no-install-recommends \
-            ca-certificates curl wget xz-utils tar git \
-            build-essential autotools-dev autoconf automake libtool \
-            flex bison gperf gettext python3 \
-            pkgconf ninja-build cmake
-
-          # Linux cross toolchain (ELF aarch64-unix)
-          sudo apt-get install -y --no-install-recommends \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
-
-          # MinGW toolchain (PE aarch64-windows) + инструменты
-          sudo apt-get install -y --no-install-recommends \
-            mingw-w64 gcc-mingw-w64-aarch64 binutils-mingw-w64
-
-          # Arm64 dev-заголовки/библиотеки (именно :arm64, чтобы линковалось в aarch64-linux-gnu)
-          sudo apt-get install -y --no-install-recommends \
-            libc6-dev:arm64 linux-libc-dev:arm64 \
-            zlib1g-dev:arm64 \
-            libfreetype6-dev:arm64 libfontconfig1-dev:arm64 \
-            libsdl2-dev:arm64 \
-            libasound2-dev:arm64 libpulse-dev:arm64 \
-            libdbus-1-dev:arm64 libdb-dev:arm64 \
-            libavcodec-dev:arm64 libavformat-dev:arm64 libavutil-dev:arm64 libswscale-dev:arm64
-
-          # pkgconf конфликтует с pkg-config — и это нормально. Главное чтобы "pkg-config" команда была.
-          if ! command -v pkg-config >/dev/null 2>&1; then
-            sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config
-          fi
-
-          # Диагностика архитектур
-          dpkg --print-architecture
-          dpkg --print-foreign-architectures
-          pkg-config --version || true
-          pkgconf --version
-
-      # -----------------------------
-      # llvm-mingw (дает arm64ec-w64-mingw32-clang)
-      # -----------------------------
-      - name: Install llvm-mingw (arm64ec clang)
-        shell: bash
+      - name: Install build dependencies
         run: |
-          set -euxo pipefail
-          LLVM_MINGW_VER="20251216"
-          LLVM_MINGW_TAR="llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-22.04-x86_64.tar.xz"
-          LLVM_MINGW_URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/${LLVM_MINGW_TAR}"
+          set -eux
+          sudo apt-get install -y --no-install-recommends \
+            build-essential autoconf automake libtool pkgconf \
+            git python3 gettext bash-completion cmake ninja-build
 
-          curl -L --retry 5 --retry-delay 2 -o "${LLVM_MINGW_TAR}" "${LLVM_MINGW_URL}"
+          sudo apt-get install -y --no-install-recommends \
+            libc6-dev:aarch64 libc6-dev:arm64 libc6-dev:i386 \
+            linux-libc-dev:arm64 \
+            libfreetype6-dev libfontconfig1-dev \
+            libsdl2-dev libpulse-dev libasound2-dev \
+            libdbus-1-dev libdb-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+            libx11-dev libxrandr-dev libxrender-dev \
+            libxi-dev libxinerama-dev libxfixes-dev \
+            libxcomposite-dev libxdamage-dev
+
+      - name: Download latest llvm‑mingw toolchain
+        run: |
+          set -eux
+          # Latest release from mstorsjo/llvm-mingw
+          LLVM_VER="20251118"
+          LLVM_FILE="llvm-mingw-${LLVM_VER}-ucrt-ubuntu-22.04-x86_64.tar.xz"
+          LLVM_URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_VER}/${LLVM_FILE}"
+
+          curl -L --retry 5 -o "$LLVM_FILE" "$LLVM_URL"
           mkdir -p llvm-mingw
-          tar -xJf "${LLVM_MINGW_TAR}" -C llvm-mingw --strip-components=1
+          tar -xJf "$LLVM_FILE" -C llvm-mingw --strip-components=1
+          echo "$PWD/llvm-mingw/bin" >> "$GITHUB_PATH"
 
-          echo "$GITHUB_WORKSPACE/llvm-mingw/bin" >> "$GITHUB_PATH"
-
-          # Проверим наличие критичного компилятора ARM64EC
-          command -v arm64ec-w64-mingw32-clang
-          arm64ec-w64-mingw32-clang --version
-
-      # -----------------------------
-      # Build host tools (native)
-      # -----------------------------
-      - name: Build host winetools (native)
-        shell: bash
+      - name: Build host Wine tools (native)
         run: |
-          set -euxo pipefail
+          set -eux
           mkdir -p host
           cd host
-
-          # host tools собираем без лишнего GUI
           ../wine/configure \
             --disable-tests \
             --without-x \
             --without-wayland
+          make -j$(nproc)
 
-          make -j"$(nproc)"
-
-      # -----------------------------
-      # Configure & Build Wine (aarch64-unix host + PE arm64ec/aarch64)
-      # -----------------------------
-      - name: Configure & Build Wine (aarch64-unix + arm64ec/aarch64 PE)
-        shell: bash
+      - name: Configure and build Wine
         run: |
-          set -euxo pipefail
+          set -eux
           mkdir -p build
           cd build
 
-          # КРИТИЧНО: host должен быть aarch64-linux-gnu, иначе inotify уйдет в mingw и упадет.
-          export CC="aarch64-linux-gnu-gcc"
-          export CXX="aarch64-linux-gnu-g++"
-
-          # НЕ даём pkg-config подхватить x86_64 .pc — только arm64
-          export PKG_CONFIG="pkgconf"
-          export PKG_CONFIG_LIBDIR="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
-
-          # Твой фикс freetype (оставляем)
+          export PKG_CONFIG=pkgconf
+          export CC="clang"
+          export CXX="clang++"
+          export AR="llvm-ar"
+          export LD="lld"
+          export NM="llvm-nm"
+          export RANLIB="llvm-ranlib"
           export CPPFLAGS="-I/usr/include/freetype2 ${CPPFLAGS:-}"
 
           ../wine/configure \
-            --build=x86_64-linux-gnu \
-            --host=aarch64-linux-gnu \
+            --build=$(../wine/config.guess) \
+            --host=aarch64-w64-mingw32 \
             --with-wine-tools=../host \
             --enable-win64 \
             --enable-wow64 \
-            --enable-archs=arm64ec,aarch64 \
+            --enable-archs=arm64ec,aarch64,i386 \
             --disable-tests \
             --with-freetype \
             --with-fontconfig \
@@ -177,78 +99,41 @@ jobs:
             --with-inotify \
             --without-pcap \
             --with-ffmpeg \
-            --without-x \
-            --without-wayland
+            --with-x
 
-          make -j"$(nproc)"
-          DESTDIR="$PWD/install" make install
+          make -j$(nproc)
+          DESTDIR=$PWD/install make install
 
-          # Быстрые sanity-check'и по структуре
-          test -d install/usr/local/lib/wine || (find install -maxdepth 4 -type d | sort && exit 1)
-          find install/usr/local/lib/wine -maxdepth 2 -type d | sort
-
-      # -----------------------------
-      # Package PHAT layout (wcp/)
-      # -----------------------------
-      - name: Package PHAT (wcp/)
-        shell: bash
+      - name: Package PHAT layout
         run: |
-          set -euxo pipefail
-
+          set -eux
           rm -rf wcp
-          mkdir -p \
-            wcp/bin \
-            wcp/lib/wine/aarch64-unix \
-            wcp/lib/wine/aarch64-windows \
-            wcp/lib/wine/arm64ec-windows \
-            wcp/share/wine
+          mkdir -p wcp/bin wcp/lib/wine/aarch64-unix wcp/lib/wine/aarch64-windows wcp/lib/wine/arm64ec-windows wcp/share/wine
 
-          # Где лежит install prefix
           PREFIX="build/install/usr/local"
+          cp -a "$PREFIX/bin/"* wcp/bin/
+          cp -a "$PREFIX/share/wine/"* wcp/share/wine/ || true
+          cp -a "$PREFIX/lib/wine/"* wcp/lib/wine/
 
-          # bin
-          cp -a "${PREFIX}/bin/"* wcp/bin/
-
-          # share
-          if [ -d "${PREFIX}/share/wine" ]; then
-            cp -a "${PREFIX}/share/wine/"* wcp/share/wine/
-          fi
-
-          # lib/wine (учтём возможные варианты lib vs lib64)
-          if [ -d "${PREFIX}/lib/wine" ]; then
-            cp -a "${PREFIX}/lib/wine/"* wcp/lib/wine/
-          elif [ -d "${PREFIX}/lib64/wine" ]; then
-            cp -a "${PREFIX}/lib64/wine/"* wcp/lib/wine/
-          else
-            echo "ERROR: wine lib dir not found under ${PREFIX}/lib{,64}/wine"
-            find build/install -maxdepth 5 -type d | sort
-            exit 1
-          fi
-
-          # КРИТИЧНО: arm64ec-windows должен существовать
-          test -d wcp/lib/wine/arm64ec-windows
-
-          # Минимальные метаданные (если у тебя в репо свои — замени копированием)
-          cat > wcp/env.sh <<'EOF'
+          cat > wcp/env.sh <<EOF
           #!/usr/bin/env sh
-          HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-          export PATH="$HERE/bin:$PATH"
+          HERE="\$(cd "\$(dirname "\$0")" && pwd)"
+          export PATH="\$HERE/bin:\$PATH"
           EOF
           chmod +x wcp/env.sh
 
-          cat > wcp/info.json <<'EOF'
+          cat > wcp/info.json <<EOF
           {
             "name": "wine-11.1-arm64ec-phat",
-            "target": "winlator-glibc",
-            "archs": ["aarch64-unix", "aarch64-windows", "arm64ec-windows"]
+            "archs": ["aarch64-unix","aarch64-windows","arm64ec-windows","i386-windows"]
           }
           EOF
 
           tar -cJf wine-11.1-arm64ec-phat.tar.xz wcp
-          ls -lah wine-11.1-arm64ec-phat.tar.xz
+          ls -lh wine-11.1-arm64ec-phat.tar.xz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wine-11.1-arm64ec-phat
+          name: wine-arm64ec-phat
           path: wine-11.1-arm64ec-phat.tar.xz
