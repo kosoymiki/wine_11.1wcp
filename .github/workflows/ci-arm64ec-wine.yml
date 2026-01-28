@@ -24,11 +24,10 @@ jobs:
       - name: Enable arm64 multi-arch and add ports
         run: |
           sudo dpkg --add-architecture arm64
-          sudo tee /etc/apt/sources.list.d/arm64-ports.list > /dev/null << 'EOF'
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe multiverse restricted
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe multiverse restricted
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main universe multiverse restricted
-          EOF
+          sudo rm -f /etc/apt/sources.list.d/arm64-ports.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe multiverse restricted" | sudo tee /etc/apt/sources.list.d/arm64-ports.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe multiverse restricted" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main universe multiverse restricted" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
           sudo apt update
 
       - name: Install cross-compile dependencies
@@ -76,7 +75,8 @@ jobs:
 
       - name: Configure & Build Wine with Wow64
         run: |
-          mkdir -p "$BUILD_DIR" && cd "$BUILD_DIR"
+          mkdir -p "$BUILD_DIR"
+          cd "$BUILD_DIR"
           export PKG_CONFIG=pkg-config
           export PKG_CONFIG_PATH="/usr/lib/arm64/pkgconfig:${PKG_CONFIG_PATH:-}"
           export CC=aarch64-w64-mingw32-clang
