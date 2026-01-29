@@ -14,19 +14,18 @@ jobs:
     env:
       WORKDIR: ${{ github.workspace }}
 
-      # Плоские пути для всех ключевых областей
+      # Плоская структура
       WINEDIR: ${{ github.workspace }}/wine
       STAGINGDIR: ${{ github.workspace }}/wine-staging
       WINE_TOOLS_DIR: ${{ github.workspace }}/wine-tools
-      BUILDDIR: ${{ github.workspace }}/build/wine
-      EXTERNALDIR: ${{ github.workspace }}/build/external
+      BUILDROOT: ${{ github.workspace }}/wine-build
+      EXTERNALDIR: ${{ github.workspace }}/wine-external
       WCP_DIR: ${{ github.workspace }}/wcp
-      TOOLCHAINS: ${{ github.workspace }}/toolchains/llvm-mingw
 
       WINE_TAG: "wine-11.1"
       STAGING_TAG: "v11.1"
       LLVM_MINGW_VERSION: "20251216"
-      LLVM_MINGW_DIR: "$TOOLCHAINS"
+      LLVM_MINGW_DIR: ${{ github.workspace }}/llvm-mingw
 
     defaults:
       run:
@@ -39,7 +38,7 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Install dependencies
+    - name: Install build dependencies
       run: |
         set -euxo pipefail
         sudo apt-get update
@@ -52,17 +51,19 @@ jobs:
           libsdl2-dev libpulse-dev libasound2-dev \
           libdbus-1-dev libdb-dev \
           libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
-          libudev-dev ca-certificates zip rsync file
+          libudev-dev ca-certificates \
+          zip rsync file
         sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config || true
 
-    - name: Setup LLVM‑Mingw ARM64EC
+    - name: Setup LLVM‑Mingw (ARM64EC)
       run: |
         set -euxo pipefail
-        rm -rf "$TOOLCHAINS"
-        mkdir -p "$TOOLCHAINS"
+        rm -rf "$LLVM_MINGW_DIR"
+        mkdir -p "$LLVM_MINGW_DIR"
         cd "$WORKDIR"
         wget -q "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz"
-        tar -xJf llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz -C "$TOOLCHAINS" --strip-components=1
+        tar -xJf llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz \
+          -C "$LLVM_MINGW_DIR" --strip-components=1
         rm llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz
         echo "$LLVM_MINGW_DIR/bin" >> "$GITHUB_PATH"
 
@@ -75,31 +76,31 @@ jobs:
         aarch64-w64-mingw32-clang -o /tmp/x.exe /tmp/test.c -Wl,--no-undefined
         file /tmp/x.exe
 
-    - name: Clone Wine & staging
+    - name: Prepare source directories
       run: |
         set -euxo pipefail
-        rm -rf "$WINEDIR" "$STAGINGDIR" "$WINE_TOOLS_DIR"
-        mkdir -p "$WINEDIR" "$STAGINGDIR" "$WINE_TOOLS_DIR"
+        rm -rf "$WINEDIR" "$STAGINGDIR" "$WINE_TOOLS_DIR" "$BUILDROOT" "$EXTERNALDIR" "$WCP_DIR"
+        mkdir -p "$WINEDIR" "$STAGINGDIR" "$WINE_TOOLS_DIR" "$BUILDROOT" "$EXTERNALDIR" "$WCP_DIR"
 
-        # Wine src
+    - name: Clone Wine & Wine‑Staging
+      run: |
+        set -euxo pipefail
         git clone https://gitlab.winehq.org/wine/wine.git "$WINEDIR"
         cd "$WINEDIR"
         git fetch --tags
         git checkout -qf "$WINE_TAG"
 
-        # Wine‑staging
         git clone https://gitlab.winehq.org/wine/wine-staging.git "$STAGINGDIR"
         cd "$STAGINGDIR"
         git fetch --tags
         git checkout -qf "$STAGING_TAG"
 
-    - name: Build native wine tools (ARM64) in one place
+    - name: Build native Wine tools
       run: |
         set -euxo pipefail
         cd "$WINEDIR"
-
-        rm -rf build-tools
-        mkdir -p build-tools
+        rm -rf wine-tools-out
+        mkdir -p wine-tools-out
 
         ./configure \
           --prefix="$WINE_TOOLS_DIR" \
@@ -108,16 +109,15 @@ jobs:
           --disable-wine9x \
           --without-vulkan
 
-        make -j$(nproc) tools
-        make install -C tools
+        make -j"$(nproc)" tools
+        make -C tools install
 
-        echo "wine tools placed here:"
+        echo "wine tools binaries:"
         ls -l "$WINE_TOOLS_DIR/bin"
 
     - name: Apply staging patches
       run: |
         set -euxo pipefail
-
         cd "$STAGINGDIR"
         python3 staging/patchinstall.py -d "$WINEDIR" -a --no-autoconf
 
@@ -125,7 +125,7 @@ jobs:
         autoreconf -fiv
         ./tools/make_requests
 
-    - name: Verify wine tools
+    - name: Verify Wine tools
       run: |
         set -euxo pipefail
         ls -l "$WINE_TOOLS_DIR/bin"
@@ -133,21 +133,13 @@ jobs:
         test -x "$WINE_TOOLS_DIR/bin/wineg++"
         test -x "$WINE_TOOLS_DIR/bin/makedep"
 
-    - name: Configure Wine (cross compile)
+    - name: Configure Wine for ARM64EC
       run: |
         set -euxo pipefail
         export PATH="$LLVM_MINGW_DIR/bin:$PATH"
 
-        rm -rf "$BUILDDIR"
-        mkdir -p "$BUILDDIR"
-        cd "$BUILDDIR"
-
-        export CC=aarch64-w64-mingw32-clang
-        export CXX=aarch64-w64-mingw32-clang++
-        export AR=aarch64-w64-mingw32-ar
-        export RANLIB=aarch64-w64-mingw32-ranlib
-        export STRIP=aarch64-w64-mingw32-strip
-
+        cd "$BUILDROOT"
+        rm -rf *
         "$WINEDIR/configure" \
           --host=aarch64-w64-mingw32 \
           --with-wine-tools="$WINE_TOOLS_DIR/bin" \
@@ -160,46 +152,39 @@ jobs:
     - name: Build Wine
       run: |
         set -euxo pipefail
-        cd "$BUILDDIR"
-        make -j$(nproc)
-        DESTDIR="$BUILDDIR/install" make install
+        cd "$BUILDROOT"
+        make -j"$(nproc)"
+        DESTDIR="$BUILDROOT/install" make install
 
-    # … остальная логика сборки .wcp тут (unchanged) …
-
-
-    # Сборка Vulkan драйвера Turnip
     - name: Build Turnip Vulkan (mesa‑tu8)
       run: |
         set -euxo pipefail
-        mkdir -p "$EXTERNALDIR"
         rm -rf "$EXTERNALDIR/mesa-src" "$EXTERNALDIR/mesa-build" "$EXTERNALDIR/mesa-install"
         git clone --depth 1 https://github.com/whitebelyash/mesa-tu8 "$EXTERNALDIR/mesa-src"
         meson setup "$EXTERNALDIR/mesa-build" "$EXTERNALDIR/mesa-src" \
-          -Dvulkan-drivers=turnip \
-          -Dplatforms=none \
-          -Dbuildtype=release
+          -Dvulkan-drivers=turnip -Dplatforms=none -Dbuildtype=release
         ninja -C "$EXTERNALDIR/mesa-build"
         DESTDIR="$EXTERNALDIR/mesa-install" ninja -C "$EXTERNALDIR/mesa-build" install
 
-    # Integrate DXVK/VKD3D libs
     - name: Integrate DXVK/VKD3D
       run: |
         set -euxo pipefail
         mkdir -p "$EXTERNALDIR/dxvk" "$EXTERNALDIR/vkd3d"
-        wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp" -O /tmp/dxvk.wcp
+        wget -q \
+          "https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp" -O /tmp/dxvk.wcp
         tar -xJf /tmp/dxvk.wcp -C "$EXTERNALDIR/dxvk"
-        wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp" -O /tmp/vkd3d.wcp
+        wget -q \
+          "https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp" -O /tmp/vkd3d.wcp
         tar -xJf /tmp/vkd3d.wcp -C "$EXTERNALDIR/vkd3d"
 
-    # Unpack FEXCore runtime
-    - name: Unpack FEXCore
+    - name: Unpack FEXCore runtime
       run: |
         set -euxo pipefail
         mkdir -p "$EXTERNALDIR/fexcore"
-        wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore-2601.wcp" -O /tmp/FEXCore.wcp
+        wget -q \
+          "https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore-2601.wcp" -O /tmp/FEXCore.wcp
         tar -xJf /tmp/FEXCore.wcp -C "$EXTERNALDIR/fexcore"
 
-    # Assemble PHAT .wcp
     - name: Assemble PHAT .wcp
       run: |
         set -euxo pipefail
@@ -207,8 +192,8 @@ jobs:
         mkdir -p "$WCP_DIR"/{bin,share/wine,dxvk/arm64ec,vkd3d/arm64ec,mesa/turnip}
         mkdir -p "$WCP_DIR/lib/wine"/{aarch64-unix,aarch64-windows,arm64ec-windows}
 
-        cp -v "$BUILDDIR/install/bin/"{wine,wine64,wineboot,wineserver} "$WCP_DIR/bin/" || true
-        rsync -a "$BUILDDIR/install/lib/" "$WCP_DIR/lib/wine/aarch64-unix/" || true
+        cp -v "$BUILDROOT/install/bin/"{wine,wine64,wineboot,wineserver} "$WCP_DIR/bin/" || true
+        rsync -a "$BUILDROOT/install/lib/" "$WCP_DIR/lib/wine/aarch64-unix/" || true
         rsync -a "$EXTERNALDIR/dxvk/" "$WCP_DIR/dxvk/arm64ec/" || true
         rsync -a "$EXTERNALDIR/vkd3d/" "$WCP_DIR/vkd3d/arm64ec/" || true
         cp -v "$EXTERNALDIR/mesa-install/usr/local/lib/"* "$WCP_DIR/mesa/turnip/" || true
