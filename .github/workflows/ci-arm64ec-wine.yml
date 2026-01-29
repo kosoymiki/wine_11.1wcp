@@ -95,21 +95,33 @@ jobs:
     - name: Build native Wine tools
       run: |
         set -euxo pipefail
-        cd "$WINEDIR"
-        rm -rf wine-tools-out
 
+        # переход в исходники Wine
+        cd wine
+
+        # абсолютный путь к wine-tools
+        PREFIX="$PWD/../wine-tools"
+
+        # чистим старые вещи
+        rm -rf "$PREFIX"
+        mkdir -p "$PREFIX"
+
+        # конфиг для host‑инструментов
         ./configure \
-          --prefix="../$WINE_TOOLS_DIR" \
-          --disable-tests \
-          --disable-win16 \
-          --disable-wine9x \
-          --without-vulkan
+        --prefix="$PREFIX" \
+        --disable-tests \
+        --disable-win16 \
+        --without-vulkan
 
+        # собираем инструменты
         make -j"$(nproc)" tools
+
+        # устанавливаем именно туда
         make -C tools install
 
-        echo "wine tools binaries:"
-        ls -l "../$WINE_TOOLS_DIR/bin"
+        # проверяем, что бинарники появились
+        ls -l "$PREFIX/bin"
+
 
     - name: Apply staging patches
       run: |
