@@ -101,11 +101,11 @@ jobs:
             --with-freetype \
             --with-fontconfig \
             --without-vulkan \
-            --without-dbus \
-            --without-alsa \
+            --with-dbus \
+            --with-alsa \
             --without-pulse \
             --without-wayland \
-            --without-sdl2
+            --with-sdl2
 
           # build only needed targets
           make -j"$(nproc)" \
@@ -163,7 +163,15 @@ jobs:
             --enable-win64 \
             --enable-wow64 \
             --enable-archs=arm64ec,aarch64 \
-            --disable-tests
+            --disable-tests \
+            --with-freetype \
+            --with-fontconfig \
+            --without-vulkan \
+            --with-dbus \
+            --with-alsa \
+            --without-pulse \
+            --without-wayland \
+            --with-sdl2
 
       - name: Build Wine
         run: |
