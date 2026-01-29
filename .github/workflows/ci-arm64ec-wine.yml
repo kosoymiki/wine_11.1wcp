@@ -26,7 +26,7 @@ jobs:
       WINE_TAG: "wine-11.1"
       STAGING_TAG: "v11.1"
       LLVM_MINGW_VERSION: "20251216"
-      LLVM_MINGW_DIR: ${{ env.TOOLCHAINS }}
+      LLVM_MINGW_DIR: "$TOOLCHAINS"
 
     defaults:
       run:
