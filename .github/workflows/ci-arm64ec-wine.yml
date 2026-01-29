@@ -76,26 +76,38 @@ jobs:
           autoreconf -fiv
           ./tools/make_requests
 
-      # --- BUILD WINE TOOLS AS PART OF WINE SOURCE (BUILD‑TREE) ---
-      - name: Build wine tools
+          # --- BUILD WINE TOOLS AS PART OF WINE SOURCE (BUILD‑TREE) ---
+      - name: Build wine tools correctly
         run: |
           set -euxo pipefail
-          ROOT="$(pwd)"
+          ROOT="$PWD"
 
-          # 1) Create a build tree for tools
-          rm -rf "$ROOT/wine/tools-build"
-          mkdir -p "$ROOT/wine/tools-build"
-          cd "$ROOT/wine/tools-build"
+          # 1) Очистим старый wine-tools
+          rm -rf "$ROOT/wine-tools"
+          mkdir -p "$ROOT/wine-tools"
 
-          # 2) Configure ONLY necessary tools (no cross flags here)
+          # 2) Создадим build‑дерево для winetools внутри исходников Wine
+          cd "$ROOT/wine"
+
+          rm -rf tools-build
+          mkdir -p tools-build
+          cd tools‑build
+
+          # 3) Конфигурим только инструменты (без cross‑опций, без лишних зависимостей)
           ../configure \
             --disable-tests \
             --disable-win16 \
-            --enable-tools \
             --with-freetype \
-            --with-fontconfig
+            --with-fontconfig \
+            --without-vulkan \
+            --without-dbus \
+            --without-alsa \
+            --without-pulse \
+            --without-wayland \
+            --without-sdl2
 
-          # 3) Build tools
+          # 4) Собираем нужные инструменты:
+          #    winebuild, widl, wrc, makedep, winegcc и wmc
           make -j"$(nproc)" \
             tools/winebuild/winebuild \
             tools/widl/widl \
@@ -104,23 +116,31 @@ jobs:
             tools/winegcc/winegcc \
             tools/wmc/wmc
 
-          # 4) Install tools into a predictable directory
-          rm -rf "$ROOT/wine-tools"
-          mkdir -p "$ROOT/wine-tools/tools"
-          cp -v tools/winebuild/winebuild "$ROOT/wine-tools/tools/winebuild"
-          cp -v tools/widl/widl           "$ROOT/wine-tools/tools/widl"
-          cp -v tools/wrc/wrc             "$ROOT/wine-tools/tools/wrc"
-          cp -v tools/makedep             "$ROOT/wine-tools/tools/makedep"
-          cp -v tools/winegcc/winegcc     "$ROOT/wine-tools/tools/winegcc"
-          cp -v tools/wmc/wmc             "$ROOT/wine-tools/tools/wmc"
+          # 5) Развернём полную структуру tools/... в wine-tools
+          mkdir -p "$ROOT/wine-tools/tools/winebuild"
+          mkdir -p "$ROOT/wine-tools/tools/widl"
+          mkdir -p "$ROOT/wine-tools/tools/wrc"
+          mkdir -p "$ROOT/wine-tools/tools/winegcc"
+          mkdir -p "$ROOT/wine-tools/tools/wmc"
 
-          # 5) Validate
-          ls -l "$ROOT/wine-tools/tools"
-          test -x "$ROOT/wine-tools/tools/winebuild"
-          test -x "$ROOT/wine-tools/tools/widl"
-          test -x "$ROOT/wine-tools/tools/wrc"
-          test -x "$ROOT/wine-tools/tools/makedep"
-          test -x "$ROOT/wine-tools/tools/winegcc"
+          cp -v tools/winebuild/winebuild "$ROOT/wine-tools/tools/winebuild/"
+          cp -v tools/widl/widl           "$ROOT/wine-tools/tools/widl/"
+          cp -v tools/wrc/wrc             "$ROOT/wine-tools/tools/wrc/"
+          cp -v tools/makedep             "$ROOT/wine-tools/tools/"
+          cp -v tools/winegcc/winegcc     "$ROOT/wine-tools/tools/winegcc/"
+          cp -v tools/wmc/wmc             "$ROOT/wine-tools/tools/wmc/"
+
+          # 6) Проверки структуры
+          echo "Contents of wine-tools/tools:"
+          ls -lR "$ROOT/wine-tools/tools"
+
+          test -x "$ROOT/wine-tools/tools/winebuild/winebuild"
+          test -x "$ROOT/wine-tools/tools/widl/widl"
+          test -x "$ROOT/wine-tools/tools/wrc/wrc"
+          test -x "$ROOT/wine-tools/tools/winegcc/winegcc"
+          test -x "$ROOT/wine-tools/tools/wmc/wmc"
+          test -f "$ROOT/wine-tools/tools/makedep"
+
 
       # --- CROSS CONFIGURE & BUILD ---
       - name: Configure Wine cross
