@@ -43,38 +43,42 @@ jobs:
             rsync file zip xz-utils
           sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config || true
 
-      - name: Setup llvm-mingw (prebuilt with ARM sanity-check + fallback source build)
+      - name: Setup llvm-mingw (prebuilt aarch64 zip)
         run: |
           set -euxo pipefail
           ROOT="$(pwd)"
           LLVM_MINGW_VERSION="20251216"
-
-          rm -rf "$ROOT/llvm-mingw" "$ROOT/llvm-mingw-src"
-          mkdir -p "$ROOT/llvm-mingw"
-
-          ASSET="llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz"
+          ASSET="llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-aarch64.zip"
           URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/${ASSET}"
 
-          echo "Runner arch: $(uname -m)"
-          echo "Downloading: $URL"
-          wget -q "$URL" -O "$ROOT/llvm-mingw.tar.xz"
-          tar -xJf "$ROOT/llvm-mingw.tar.xz" -C "$ROOT/llvm-mingw" --strip-components=1
-          rm -f "$ROOT/llvm-mingw.tar.xz"
+          rm -rf "$ROOT/llvm-mingw"
+          mkdir -p "$ROOT/llvm-mingw"
 
-          # IMPORTANT: follow symlinks when checking architecture
+          echo "Downloading llvm-mingw from: $URL"
+          wget -q "$URL" -O "$ROOT/llvm-mingw.zip"
+          unzip -q "$ROOT/llvm-mingw.zip" -d "$ROOT/llvm-mingw"
+          rm -f "$ROOT/llvm-mingw.zip"
+
+          # Sanity check: ensure clang and tools are ARM64 Linux binaries
+          echo "Checking llvm-mingw/bin contents..."
+          ls -1 "$ROOT/llvm-mingw/bin" | head -n 100
+
+          # Must be real ARM64 executables, not host executables
           file -L "$ROOT/llvm-mingw/bin/clang" || true
-          if ! file -L "$ROOT/llvm-mingw/bin/clang" | grep -qiE '(aarch64|ARM aarch64)'; then
-            echo "Prebuilt clang is not runnable on this ARM runner -> building llvm-mingw from source (fallback)."
-            rm -rf "$ROOT/llvm-mingw"
-            mkdir -p "$ROOT/llvm-mingw"
-            git clone --depth 1 https://github.com/mstorsjo/llvm-mingw.git "$ROOT/llvm-mingw-src"
-            # build-all.sh expects to be run from repo root (it calls ./build-llvm.sh etc.)
-            ( cd "$ROOT/llvm-mingw-src" && bash ./build-all.sh "$ROOT/llvm-mingw" )
-          fi
+          file -L "$ROOT/llvm-mingw/bin/aarch64-w64-mingw32-clang" || true
 
+          # Add to PATH for xcompile tools
           echo "$ROOT/llvm-mingw/bin" >> "$GITHUB_PATH"
-          ls -1 "$ROOT/llvm-mingw/bin" | head -n 60
-          "$ROOT/llvm-mingw/bin/clang" --version
+
+          # Create triplet pkg-config shims so Wine configure finds host pkg-config
+          for t in aarch64-w64-mingw32 arm64ec-w64-mingw32 x86_64-w64-mingw32 i686-w64-mingw32; do
+            ln -sf /usr/bin/pkg-config "$ROOT/llvm-mingw/bin/${t}-pkg-config" || true
+          done
+
+          # Debug prints
+          echo "llvm-mingw PATH prepended; examples:"
+          "$ROOT/llvm-mingw/bin/aarch64-w64-mingw32-clang" --version
+          "$ROOT/llvm-mingw/bin/arm64ec-w64-mingw32-clang" --version || true
 
       - name: Verify llvm-mingw PE cross toolchain
         run: |
