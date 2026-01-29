@@ -86,7 +86,7 @@ jobs:
           aarch64-w64-mingw32-clang -o /tmp/test.exe /tmp/test.c -Wl,--no-undefined
           file /tmp/test.exe
 
-      - name: Clone Wine & Wine-Staging by tags (flat: ./wine, ./wine-staging)
+      - name: Clone Wine & Wine-Staging by tags (./wine, ./wine-staging)
         run: |
           set -euxo pipefail
           rm -rf "$WINEDIR" "$STAGINGDIR"
@@ -141,7 +141,7 @@ jobs:
           test -x "$WINE_TOOLS_DIR/bin/wrc"
           test -x "$WINE_TOOLS_DIR/bin/makedep"
 
-      - name: Configure Wine (cross-compile) (flat: ./wine-build)
+      - name: Configure Wine (cross-compile) (f ./wine-build)
         run: |
           set -euxo pipefail
 
@@ -164,7 +164,7 @@ jobs:
             --disable-tests \
             --without-vulkan
 
-      - name: Build + install to flat: ./wine-install
+      - name: Build + install to flat ./wine-install
         run: |
           set -euxo pipefail
           rm -rf "$INSTALLDIR"
