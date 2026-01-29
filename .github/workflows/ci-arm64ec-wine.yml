@@ -13,8 +13,10 @@ jobs:
 
     env:
       WORKDIR: ${{ github.workspace }}
-      WINEDIR: ${{ github.workspace }}/wine
-      STAGINGDIR: ${{ github.workspace }}/wine-staging
+      # Чёткие, плоские пути
+      SRC_ROOT: ${{ github.workspace }}/src
+      WINEDIR: ${{ github.workspace }}/src/wine
+      STAGINGDIR: ${{ github.workspace }}/src/wine-staging
       BUILDDIR: ${{ github.workspace }}/build/wine
       EXTERNALDIR: ${{ github.workspace }}/build/external
       WCP_DIR: ${{ github.workspace }}/wcp
@@ -63,6 +65,7 @@ jobs:
         rm llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz
         echo "$LLVM_MINGW_DIR/bin" >> "$GITHUB_PATH"
 
+    # Проверка наличия кросс‑компилятора
     - name: Verify cross‑compiler
       run: |
         set -euxo pipefail
@@ -72,67 +75,73 @@ jobs:
         aarch64-w64-mingw32-clang -o /tmp/test.exe /tmp/test.c -Wl,--no-undefined
         file /tmp/test.exe
 
+    # Чёткое клонирование в src/
     - name: Clone Wine & Wine‑Staging by tags
       run: |
         set -euxo pipefail
-        rm -rf "$WINEDIR" "$STAGINGDIR"
-        git clone https://gitlab.winehq.org/wine/wine.git "$WINEDIR"
-        cd "$WINEDIR"
+
+        rm -rf "$SRC_ROOT"
+        mkdir -p "$SRC_ROOT"
+        cd "$SRC_ROOT"
+
+        git clone https://gitlab.winehq.org/wine/wine.git wine
+        cd wine
         git fetch --tags
         git checkout -qf "$WINE_TAG"
 
-        git clone https://gitlab.winehq.org/wine/wine-staging.git "$STAGINGDIR"
-        cd "$STAGINGDIR"
+        cd "$SRC_ROOT"
+        git clone https://gitlab.winehq.org/wine/wine-staging.git wine-staging
+        cd wine-staging
         git fetch --tags
         git checkout -qf "$STAGING_TAG"
 
-    - name: Build and install wine tools (ARM64)
+    # Нативная сборка wine tools (ARM64)
+    - name: Build and install wine tools
       run: |
         set -euxo pipefail
-
         cd "$WINEDIR"
+
         rm -rf build-tools
         mkdir -p build-tools
 
-        # Конфиг Wine с prefix в build-tools
+        # ПРЕФИКС ДЛЯ УСТАНОВКИ ИНСТРУМЕНТОВ
         ./configure \
-         --prefix="$WINEDIR/build-tools/usr/bin" \
-         --disable-tests \
-         --disable-win16 \
-         --disable-wine9x \
-         --without-vulkan
+          --prefix="$WINEDIR/build-tools" \
+          --disable-tests \
+          --disable-win16 \
+          --disable-wine9x \
+          --without-vulkan
 
-        # Собираем инструменты
         make -j$(nproc) tools
+        make -C tools install
 
-        # Явно устанавливаем инструменты в prefix
-        make install -C tools
-
-        # Проверяем результат
-        echo "Contents of build-tools/usr/bin:"
+        echo "Wine tools installed in usr/bin:"
         ls -l "$WINEDIR/build-tools/usr/bin" || true
 
-
+    # Применение staging патчей
     - name: Apply staging patches
       run: |
         set -euxo pipefail
         cd "$STAGINGDIR"
-        python3 staging/patchinstall.py -d "$WINEDIR" -a --no-autoconf
+
+        python3 staging/patchinstall.py \
+          -d "$WINEDIR" \
+          -a --no-autoconf
 
         cd "$WINEDIR"
         autoreconf -fiv
         ./tools/make_requests
 
-    - name: Verify wine tools binaries
+    # Диагностика: убеждаемся, что wine tools есть
+    - name: Verify wine tools
       run: |
-         set -euxo pipefail
+        set -euxo pipefail
+        ls -l "$WINEDIR/build-tools/usr/bin"
+        test -x "$WINEDIR/build-tools/usr/bin/winebuild"
+        test -x "$WINEDIR/build-tools/usr/bin/wineg++"
+        test -x "$WINEDIR/build-tools/usr/bin/makedep"
 
-         ls -l "$WINEDIR/build-tools/usr/bin"
-         test -x "$WINEDIR/build-tools/usr/bin/winebuild"
-         test -x "$WINEDIR/build-tools/usr/bin/wineg++"
-         test -x "$WINEDIR/build-tools/usr/bin/makedep"
-
-
+    # Настраиваем wine (кросс‑конфигурация)
     - name: Configure Wine (cross‑compile)
       run: |
         set -euxo pipefail
@@ -157,6 +166,7 @@ jobs:
           --disable-tests \
           --without-vulkan
 
+    # Сборка Wine
     - name: Build Wine
       run: |
         set -euxo pipefail
@@ -164,6 +174,7 @@ jobs:
         make -j$(nproc)
         DESTDIR="$BUILDDIR/install" make install
 
+    # Сборка Vulkan драйвера Turnip
     - name: Build Turnip Vulkan (mesa‑tu8)
       run: |
         set -euxo pipefail
@@ -177,7 +188,8 @@ jobs:
         ninja -C "$EXTERNALDIR/mesa-build"
         DESTDIR="$EXTERNALDIR/mesa-install" ninja -C "$EXTERNALDIR/mesa-build" install
 
-    - name: Integrate DXVK/VKD3D libs
+    # Integrate DXVK/VKD3D libs
+    - name: Integrate DXVK/VKD3D
       run: |
         set -euxo pipefail
         mkdir -p "$EXTERNALDIR/dxvk" "$EXTERNALDIR/vkd3d"
@@ -186,13 +198,15 @@ jobs:
         wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp" -O /tmp/vkd3d.wcp
         tar -xJf /tmp/vkd3d.wcp -C "$EXTERNALDIR/vkd3d"
 
-    - name: Unpack FEXCore runtime
+    # Unpack FEXCore runtime
+    - name: Unpack FEXCore
       run: |
         set -euxo pipefail
         mkdir -p "$EXTERNALDIR/fexcore"
         wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore-2601.wcp" -O /tmp/FEXCore.wcp
         tar -xJf /tmp/FEXCore.wcp -C "$EXTERNALDIR/fexcore"
 
+    # Assemble PHAT .wcp
     - name: Assemble PHAT .wcp
       run: |
         set -euxo pipefail
@@ -207,7 +221,7 @@ jobs:
         cp -v "$EXTERNALDIR/mesa-install/usr/local/lib/"* "$WCP_DIR/mesa/turnip/" || true
         rsync -a "$EXTERNALDIR/fexcore/" "$WCP_DIR/lib/wine/arm64ec-windows/" || true
 
-        cat > "$WCP_DIR/env.sh" <<'EOF'
+        cat > "$WCP_DIR/env.sh" << 'EOF'
         #!/bin/sh
         export WINEDEBUG=-all
         export DXVK_ASYNC=1
