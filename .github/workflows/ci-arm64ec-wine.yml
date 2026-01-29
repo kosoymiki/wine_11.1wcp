@@ -97,32 +97,52 @@ jobs:
           autoreconf -fiv
           ./tools/make_requests
 
-      - name: Build wine tools native aarch64
+      - name: Build native wine tools minimal
         run: |
           set -euxo pipefail
           ROOT="$PWD"
 
-          # В одной плоскости
-          rm -rf "$ROOT/wine-tools" "$ROOT/wine/build-tools"
-          mkdir -p "$ROOT/wine-tools" "$ROOT/wine/build-tools"
+          # Чистим прошлые результаты
+          rm -rf wine-tools wine/build-tools
+          mkdir -p wine-tools/bin wine/build-tools
 
-          # Out-of-tree, чтобы не плодить мусор и не ломать пути
-          cd "$ROOT/wine/build-tools"
+          # Собираем только нужные исполняемые файлы
+          cd wine/build-tools
 
-          # prefix ДОЛЖЕН быть абсолютным (у нас он абсолютный)
+          # Конфигурация должна быть минимальной, без ненужных зависимостей
           ../configure \
-            --prefix="$ROOT/wine-tools" \
-            --disable-tests \
-            --disable-win16 \
-            --without-vulkan
+          --disable-tests \
+          --disable-win16 \
+          --without-x \
+          --without-vulkan \
+          --without-alsa \
+          --without-pulse \
+          --without-sdl2
 
-          make -j"$(nproc)" tools
-          make install
+          # Собираем только конкретные инструменты
+          make -j"$(nproc)" \
+          tools/winebuild/winebuild \
+          tools/widl/widl \
+          tools/wrc/wrc \
+          tools/makedep/makedep \
+          tools/winegcc/winegcc
 
-          ls -la "$ROOT/wine-tools/bin" | head -n 80 || true
+          # Устанавливаем ровно те бинарники, которые нужны
+          install -D -m 755 tools/winebuild/winebuild "$ROOT/wine-tools/bin/winebuild"
+          install -D -m 755 tools/widl/widl           "$ROOT/wine-tools/bin/widl"
+          install -D -m 755 tools/wrc/wrc             "$ROOT/wine-tools/bin/wrc"
+          install -D -m 755 tools/makedep/makedep     "$ROOT/wine-tools/bin/makedep"
+          install -D -m 755 tools/winegcc/winegcc     "$ROOT/wine-tools/bin/winegcc"
+
+
+          # Проверка результатов
+          ls -l "$ROOT/wine-tools/bin"
           test -x "$ROOT/wine-tools/bin/winebuild"
+          test -x "$ROOT/wine-tools/bin/widl"
+          test -x "$ROOT/wine-tools/bin/wrc"
           test -x "$ROOT/wine-tools/bin/makedep"
           test -x "$ROOT/wine-tools/bin/winegcc"
+
 
       - name: Configure wine cross arm64ec
         run: |
