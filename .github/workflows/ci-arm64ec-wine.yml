@@ -46,29 +46,41 @@ jobs:
       - name: Setup llvm-mingw (prebuilt)
         run: |
           set -euxo pipefail
+
           ROOT="$(pwd)"
-
           LLVM_MINGW_VERSION="20251216"
-          ASSET="llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-aarch64.zip"
-          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/${ASSET}"
+          DISTRO="ubuntu-22.04"
+          ARCH="$(uname -m)"  # ожидается aarch64
 
+          # Удаляем старые
           rm -rf "$ROOT/llvm-mingw"
           mkdir -p "$ROOT/llvm-mingw"
 
-          wget -q "$URL" -O "$ROOT/$ASSET"
+          # URL правильного .tar.xz кросс-компилятора
+          ASSET="llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-${DISTRO}-${ARCH}.tar.xz"
+          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/${ASSET}"
 
-          # распаковать во временную
-          unzip -q "$ROOT/$ASSET" -d "$ROOT/llvm-mingw-tmp"
-          rm -f "$ROOT/$ASSET"
+          echo "Downloading llvm-mingw from: $URL"
+          wget -q "$URL" -O "$ROOT/${ASSET}"
 
-          # переместить содержимое
-          mv "$ROOT/llvm-mingw-tmp/"* "$ROOT/llvm-mingw/"
-          rm -rf "$ROOT/llvm-mingw-tmp"
+          # Распаковываем под llvm-mingw
+          tar -xJf "$ROOT/${ASSET}" -C "$ROOT/llvm-mingw" --strip-components=1
+          rm -f "$ROOT/${ASSET}"
 
-          # добавить в PATH
-          echo "$ROOT/llvm-mingw/bin" >> "$GITHUB_PATH"
+          # Проверяем структуру
+          if [ ! -d "$ROOT/llvm-mingw/bin" ]; then
+            echo "ERROR: llvm-mingw/bin not found after extraction!"
+            echo "Contents of llvm-mingw:"
+            ls -l "$ROOT/llvm-mingw" || true
+            exit 1
+          fi
 
+          # Покажем содержимое bin для диагностики
+          echo "LLVM-MinGW /bin contents:"
           ls -1 "$ROOT/llvm-mingw/bin"
+
+          # Добавляем в PATH
+          echo "$ROOT/llvm-mingw/bin" >> "$GITHUB_PATH"
 
       - name: Verify llvm-mingw PE cross toolchain
         run: |
