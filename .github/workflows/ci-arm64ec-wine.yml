@@ -104,14 +104,19 @@ jobs:
         set -euxo pipefail
         ROOT="$(pwd)"
 
-        rm -rf "$ROOT/wine-tools"
-        mkdir -p "$ROOT/wine-tools"
-
+        # Перейти в директорию исходников Wine
         cd "$ROOT/wine"
+
+        # Сгенерировать autotools (configure, Makefile.in) во всех подпапках,
+        # включая tools/makedep — это важно для того, чтобы makedep получил свои правила
+        autoreconf -fiv
+
+        # Сборка только инструментов в отдельной папке
         rm -rf tools-build
         mkdir tools-build
         cd tools-build
 
+        # Конфигурация для сборки инструментов
         ../configure \
           --disable-tests \
           --disable-win16 \
@@ -124,28 +129,28 @@ jobs:
           --without-wayland \
           --without-sdl
 
+        # Собрать только требуемые инструменты
         make -j"$(nproc)" \
           tools/winebuild/winebuild \
           tools/widl/widl \
           tools/wrc/wrc \
           tools/winegcc/winegcc \
           tools/wmc/wmc \
-          tools/makedep/makedep || make -j"$(nproc)" tools/makedep/makedep
+          tools/makedep/makedep
 
+        # Создать директории для инструментов в wine-tools
         mkdir -p "$ROOT/wine-tools/tools"/{winebuild,widl,wrc,winegcc,wmc,makedep}
 
+        # Скопировать собранные бинарники туда
         cp tools/winebuild/winebuild "$ROOT/wine-tools/tools/winebuild/"
         cp tools/widl/widl           "$ROOT/wine-tools/tools/widl/"
         cp tools/wrc/wrc             "$ROOT/wine-tools/tools/wrc/"
         cp tools/winegcc/winegcc     "$ROOT/wine-tools/tools/winegcc/"
         cp tools/wmc/wmc             "$ROOT/wine-tools/tools/wmc/"
+        cp tools/makedep/makedep     "$ROOT/wine-tools/tools/makedep/"
 
-        # makedep support
-        if [ -f tools/makedep/makedep ]; then
-          cp tools/makedep/makedep "$ROOT/wine-tools/tools/makedep/"
-        else
-          cp tools/makedep "$ROOT/wine-tools/tools/makedep/"
-        fi
+        # Диагностика (опционально): показать содержимое wine-tools
+        ls -l "$ROOT/wine-tools/tools"
 
     - name: Configure Wine (native + PE mix)
       run: |
