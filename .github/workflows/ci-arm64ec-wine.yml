@@ -12,20 +12,18 @@ jobs:
     runs-on: ubuntu-24.04-arm
 
     env:
-      WORKDIR: ${{ github.workspace }}
-
-      # Плоская структура
-      WINEDIR: ${{ github.workspace }}/wine
-      STAGINGDIR: ${{ github.workspace }}/wine-staging
-      WINE_TOOLS_DIR: ${{ github.workspace }}/wine-tools
-      BUILDROOT: ${{ github.workspace }}/wine-build
-      EXTERNALDIR: ${{ github.workspace }}/wine-external
-      WCP_DIR: ${{ github.workspace }}/wcp
+      # Плоские пути (относительно корня репо)
+      WINEDIR: wine
+      STAGINGDIR: wine-staging
+      WINE_TOOLS_DIR: wine-tools
+      BUILDROOT: wine-build
+      EXTERNALDIR: wine-external
+      WCP_DIR: wcp
+      LLVM_MINGW_VERSION: "20251216"
+      LLVM_MINGW_DIR: llvm-mingw
 
       WINE_TAG: "wine-11.1"
       STAGING_TAG: "v11.1"
-      LLVM_MINGW_VERSION: "20251216"
-      LLVM_MINGW_DIR: ${{ github.workspace }}/llvm-mingw
 
     defaults:
       run:
@@ -60,7 +58,6 @@ jobs:
         set -euxo pipefail
         rm -rf "$LLVM_MINGW_DIR"
         mkdir -p "$LLVM_MINGW_DIR"
-        cd "$WORKDIR"
         wget -q "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz"
         tar -xJf llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz \
           -C "$LLVM_MINGW_DIR" --strip-components=1
@@ -72,11 +69,11 @@ jobs:
         set -euxo pipefail
         command -v aarch64-w64-mingw32-clang
         aarch64-w64-mingw32-clang --version
-        echo 'int main(void){}' > /tmp/test.c
-        aarch64-w64-mingw32-clang -o /tmp/x.exe /tmp/test.c -Wl,--no-undefined
-        file /tmp/x.exe
+        echo 'int main(void){}' > test.c
+        aarch64-w64-mingw32-clang -o test.exe test.c -Wl,--no-undefined
+        file test.exe
 
-    - name: Prepare source directories
+    - name: Clean and prepare source dirs
       run: |
         set -euxo pipefail
         rm -rf "$WINEDIR" "$STAGINGDIR" "$WINE_TOOLS_DIR" "$BUILDROOT" "$EXTERNALDIR" "$WCP_DIR"
@@ -100,10 +97,9 @@ jobs:
         set -euxo pipefail
         cd "$WINEDIR"
         rm -rf wine-tools-out
-        mkdir -p wine-tools-out
 
         ./configure \
-          --prefix="$WINE_TOOLS_DIR" \
+          --prefix="../$WINE_TOOLS_DIR" \
           --disable-tests \
           --disable-win16 \
           --disable-wine9x \
@@ -113,15 +109,15 @@ jobs:
         make -C tools install
 
         echo "wine tools binaries:"
-        ls -l "$WINE_TOOLS_DIR/bin"
+        ls -l "../$WINE_TOOLS_DIR/bin"
 
     - name: Apply staging patches
       run: |
         set -euxo pipefail
         cd "$STAGINGDIR"
-        python3 staging/patchinstall.py -d "$WINEDIR" -a --no-autoconf
+        python3 staging/patchinstall.py -d "../$WINEDIR" -a --no-autoconf
 
-        cd "$WINEDIR"
+        cd "../$WINEDIR"
         autoreconf -fiv
         ./tools/make_requests
 
@@ -133,16 +129,17 @@ jobs:
         test -x "$WINE_TOOLS_DIR/bin/wineg++"
         test -x "$WINE_TOOLS_DIR/bin/makedep"
 
-    - name: Configure Wine for ARM64EC
+    - name: Configure Wine (cross compile)
       run: |
         set -euxo pipefail
         export PATH="$LLVM_MINGW_DIR/bin:$PATH"
 
         cd "$BUILDROOT"
         rm -rf *
-        "$WINEDIR/configure" \
+
+        "../$WINEDIR/configure" \
           --host=aarch64-w64-mingw32 \
-          --with-wine-tools="$WINE_TOOLS_DIR/bin" \
+          --with-wine-tools="../$WINE_TOOLS_DIR/bin" \
           --enable-win64 \
           --enable-wow64 \
           --enable-archs=arm64ec,aarch64 \
@@ -171,19 +168,19 @@ jobs:
         set -euxo pipefail
         mkdir -p "$EXTERNALDIR/dxvk" "$EXTERNALDIR/vkd3d"
         wget -q \
-          "https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp" -O /tmp/dxvk.wcp
-        tar -xJf /tmp/dxvk.wcp -C "$EXTERNALDIR/dxvk"
+          "https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp" -O dxvk.wcp
+        tar -xJf dxvk.wcp -C "$EXTERNALDIR/dxvk"
         wget -q \
-          "https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp" -O /tmp/vkd3d.wcp
-        tar -xJf /tmp/vkd3d.wcp -C "$EXTERNALDIR/vkd3d"
+          "https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp" -O vkd3d.wcp
+        tar -xJf vkd3d.wcp -C "$EXTERNALDIR/vkd3d"
 
     - name: Unpack FEXCore runtime
       run: |
         set -euxo pipefail
         mkdir -p "$EXTERNALDIR/fexcore"
         wget -q \
-          "https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore-2601.wcp" -O /tmp/FEXCore.wcp
-        tar -xJf /tmp/FEXCore.wcp -C "$EXTERNALDIR/fexcore"
+          "https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore-2601.wcp" -O FEXCore.wcp
+        tar -xJf FEXCore.wcp -C "$EXTERNALDIR/fexcore"
 
     - name: Assemble PHAT .wcp
       run: |
@@ -217,4 +214,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: wine-arm64ec-phat
-        path: ${{ env.WCP_DIR }}
+        path: "$WCP_DIR"
