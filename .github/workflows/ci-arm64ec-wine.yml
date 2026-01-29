@@ -96,7 +96,7 @@ jobs:
 
         # Конфиг Wine с prefix в build-tools
         ./configure \
-         --prefix="/home/runner/work/wine_11.1wcp/wine_11.1wcp/wine" \
+         --prefix="$WINEDIR/build-tools/usr/bin" \
          --disable-tests \
          --disable-win16 \
          --disable-wine9x \
@@ -109,8 +109,8 @@ jobs:
         make install -C tools
 
         # Проверяем результат
-        echo "Contents of build-tools/bin:"
-        ls -l "$WINEDIR/build-tools/bin" || true
+        echo "Contents of build-tools/usr/bin:"
+        ls -l "$WINEDIR/build-tools/usr/bin" || true
 
 
     - name: Apply staging patches
@@ -127,10 +127,10 @@ jobs:
       run: |
          set -euxo pipefail
 
-         ls -l "$WINEDIR/build-tools/bin"
-         test -x "$WINEDIR/build-tools/bin/winebuild"
-         test -x "$WINEDIR/build-tools/bin/wineg++"
-         test -x "$WINEDIR/build-tools/bin/makedep"
+         ls -l "$WINEDIR/build-tools/usr/bin"
+         test -x "$WINEDIR/build-tools/usr/bin/winebuild"
+         test -x "$WINEDIR/build-tools/usr/bin/wineg++"
+         test -x "$WINEDIR/build-tools/usr/bin/makedep"
 
 
     - name: Configure Wine (cross‑compile)
@@ -150,7 +150,7 @@ jobs:
 
         "$WINEDIR/configure" \
           --host=aarch64-w64-mingw32 \
-          --with-wine-tools="$WINEDIR/build-tools/bin" \
+          --with-wine-tools="$WINEDIR/build-tools/usr/bin" \
           --enable-win64 \
           --enable-wow64 \
           --enable-archs=arm64ec,aarch64 \
