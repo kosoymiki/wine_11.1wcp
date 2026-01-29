@@ -57,16 +57,22 @@ jobs:
 
         echo "Downloading llvm-mingw from: $URL"
         wget -q "$URL" -O "$ROOT/$ASSET"
+
         tar -xJf "$ROOT/$ASSET" -C "$ROOT/llvm-mingw" --strip-components=1
         rm -f "$ROOT/$ASSET"
 
         # Add to PATH for cross toolchain
         echo "$ROOT/llvm-mingw/bin" >> "$GITHUB_PATH"
 
-        # Diagnostics
+        # Sanity check: clang must be ELF ARM64
         file -L "$ROOT/llvm-mingw/bin/clang" || true
-        ls -1 "$ROOT/llvm-mingw/bin" | head -n 60
 
+        # List llvm-mingw/bin without broken pipe failure
+        # First list all files, then head — without pipefail impact
+        echo "Contents of llvm-mingw/bin:"
+        ls -1 "$ROOT/llvm-mingw/bin" >/tmp/llvm_mingw_bin_list.txt
+        head -n 60 /tmp/llvm_mingw_bin_list.txt
+        
     - name: Verify llvm-mingw cross toolchain
       run: |
         set -euxo pipefail
