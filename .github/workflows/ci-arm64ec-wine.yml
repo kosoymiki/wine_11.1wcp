@@ -168,7 +168,6 @@ jobs:
             --with-freetype \
             --with-fontconfig \
             --without-vulkan \
-            --with-dbus \
             --with-alsa \
             --without-pulse \
             --without-wayland \
