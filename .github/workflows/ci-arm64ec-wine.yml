@@ -43,43 +43,24 @@ jobs:
             rsync file zip xz-utils
           sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config || true
 
-      - name: Setup llvm-mingw (prebuilt)
+      - name: Setup llvm-mingw
         run: |
           set -euxo pipefail
-
           ROOT="$(pwd)"
           LLVM_MINGW_VERSION="20251216"
           DISTRO="ubuntu-22.04"
-          ARCH="$(uname -m)"  # ожидается aarch64
+          ARCH="$(uname -m)"  # aarch64
 
-          # Удаляем старые
           rm -rf "$ROOT/llvm-mingw"
           mkdir -p "$ROOT/llvm-mingw"
 
-          # URL правильного .tar.xz кросс-компилятора
           ASSET="llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-${DISTRO}-${ARCH}.tar.xz"
           URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/${ASSET}"
-
-          echo "Downloading llvm-mingw from: $URL"
           wget -q "$URL" -O "$ROOT/${ASSET}"
 
-          # Распаковываем под llvm-mingw
           tar -xJf "$ROOT/${ASSET}" -C "$ROOT/llvm-mingw" --strip-components=1
           rm -f "$ROOT/${ASSET}"
 
-          # Проверяем структуру
-          if [ ! -d "$ROOT/llvm-mingw/bin" ]; then
-            echo "ERROR: llvm-mingw/bin not found after extraction!"
-            echo "Contents of llvm-mingw:"
-            ls -l "$ROOT/llvm-mingw" || true
-            exit 1
-          fi
-
-          # Покажем содержимое bin для диагностики
-          echo "LLVM-MinGW /bin contents:"
-          ls -1 "$ROOT/llvm-mingw/bin"
-
-          # Добавляем в PATH
           echo "$ROOT/llvm-mingw/bin" >> "$GITHUB_PATH"
 
       - name: Verify llvm-mingw PE cross toolchain
