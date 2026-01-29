@@ -64,7 +64,7 @@ jobs:
             zip rsync file xz-utils
           sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config || true
 
-      - name: Setup LLVM-Mingw (flat: ./llvm-mingw)
+      - name: Setup LLVM-Mingw (./llvm-mingw)
         run: |
           set -euxo pipefail
           rm -rf "$LLVM_MINGW_DIR"
