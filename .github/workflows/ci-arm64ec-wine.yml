@@ -1,4 +1,4 @@
-name: Build Wine & Tools WCP for Winlator Ludashi
+name: Build Wine & WCP for Winlator-Ludashi
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
     steps:
 
     ###################################################
-    # 1) Checkout
+    # 1) Checkout source
     ###################################################
     - name: Checkout source
       uses: actions/checkout@v4
@@ -25,36 +25,40 @@ jobs:
         fetch-depth: 0
 
     ###################################################
-    # 2) System deps
+    # 2) Install build dependencies
     ###################################################
     - name: Install build dependencies
       run: |
+        # Обновление списка пакетов и установка необходимых утилит и dev‑библиотек
         set -euxo pipefail
         sudo apt update
         sudo apt install -y --no-install-recommends \
-          build-essential autoconf automake libtool pkg-config \
+          build-essential \
+          autoconf automake libtool pkg-config \
           python3 python3-pip git gettext flex bison \
           ninja-build cmake \
           libasound2-dev libpulse-dev libv4l-dev libgl-dev \
-          libx11-dev libxext-dev libxfixes-dev libxinerama-dev libxi-dev \
-          libxrandr-dev libxrender-dev libfontconfig-dev libfreetype-dev \
-          libgnutls28-dev libdbus-1-dev libsdl2-dev libjpeg-dev \
-          libpng-dev libxml2-dev libudev-dev libusb-1.0-0-dev libldap2-dev
+          libx11-dev libxext-dev libxfixes-dev libxinerama-dev \
+          libxi-dev libxrandr-dev libxrender-dev libfontconfig-dev \
+          libfreetype-dev libgnutls28-dev libdbus-1-dev libsdl2-dev \
+          libjpeg-dev libpng-dev libxml2-dev \
+          libudev-dev libusb-1.0-0-dev libldap2-dev
         sudo apt clean
         sudo rm -rf /var/lib/apt/lists/*
 
     ###################################################
-    # 3) LLVM-mingw (Cross toolchain)
+    # 3) Setup LLVM‑mingw cross toolchain
     ###################################################
     - name: Setup llvm-mingw
       run: |
+        # Скачиваем официальную сборку llvm-mingw для ARM64
         set -euxo pipefail
         TOOLCHAIN_VER="20260127"
-        FILENAME="llvm-mingw-${TOOLCHAIN_VER}-ucrt-ubuntu-22.04-aarch64.tar.xz"
-        URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${TOOLCHAIN_VER}/${FILENAME}"
+        ARCHIVE="llvm-mingw-${TOOLCHAIN_VER}-ucrt-ubuntu-22.04-aarch64.tar.xz"
+        URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${TOOLCHAIN_VER}/${ARCHIVE}"
         wget -q "$URL"
         mkdir -p llvm-mingw
-        tar -xJf "$FILENAME" -C llvm-mingw --strip-components=1
+        tar -xJf "$ARCHIVE" -C llvm-mingw --strip-components=1
         echo "$PWD/llvm-mingw/bin" >> "$GITHUB_PATH"
 
     ###################################################
@@ -90,15 +94,14 @@ jobs:
         done
 
     ###################################################
-    # 6) Build wine-tools and cross‑compile Wine
+    # 6) Build Wine Tools & Wine
     ###################################################
     - name: Configure & Compile Wine with wine-tools
       run: |
         set -euxo pipefail
-
         cd wine
 
-        # ─ Build wine-tools locally ─
+        # Собираем wine-tools локально — они нужны для cross‑compile
         mkdir wine-tools-build
         cd wine-tools-build
         ../configure \
@@ -107,13 +110,13 @@ jobs:
           --disable-win16 \
           --enable-archs=aarch64,i386
         make -j"$(nproc)"
-
         cd ..
 
-        # ─ Cross‑compile Wine with tools ─
+        # Создаём cross build директорию для Wine
         mkdir build
         cd build
 
+        # Экспортируем переменные для cross‑компиляции
         export BUILD=aarch64-linux-gnu
         export HOST=aarch64-w64-mingw32
         export CC=aarch64-w64-mingw32-clang
@@ -123,6 +126,7 @@ jobs:
         export RC=aarch64-w64-mingw32-windres
         export RANLIB=aarch64-w64-mingw32-ranlib
 
+        # Конфигурируем Wine с указанной директорией wine-tools
         ../configure \
           --build="$BUILD" \
           --host="$HOST" \
@@ -139,7 +143,6 @@ jobs:
           --with-fontconfig \
           --with-alsa \
           --with-pulse
-
         make -j"$(nproc)"
 
     ###################################################
@@ -157,12 +160,12 @@ jobs:
         ninja -C build && ninja -C build install
 
     ###################################################
-    # 8) Build VKD3D-Proton
+    # 8) Build VKD3D‑Proton
     ###################################################
     - name: Build VKD3D-Proton
       run: |
         set -euxo pipefail
-        git clone https://github.com/HansKristian-Work/vkd3d-proton.git vkd3d
+        git clone https://github.com/HansKristian‑Work/vkd3d‑proton.git vkd3d
         cd vkd3d
         git submodule update --init --recursive
         meson setup build --cross-file=../wine/build/config/meson.cross.arm64ec.ini \
@@ -170,18 +173,13 @@ jobs:
         ninja -C build && ninja -C build install
 
     ###################################################
-    # 9) Build Mesa TURNIP Vulkan
+    # 9) Build TURNIP Mesa Vulkan
     ###################################################
     - name: Build TURNIP Mesa
       run: |
         set -euxo pipefail
         git clone https://gitlab.freedesktop.org/mesa/mesa.git mesa
         cd mesa
-        if [ -d "../turnip-ci/patches" ]; then
-          for p in ../turnip-ci/patches/*.patch; do
-            patch -p1 < "$p" || true
-          done
-        fi
         pip3 install meson ninja
         meson setup builddir \
           -Dvulkan-drivers=turnip \
@@ -192,28 +190,31 @@ jobs:
         ninja -C builddir && ninja -C builddir install
 
     ###################################################
-    # 10) Packing .wcp
+    # 10) Packaging .wcp for Winlator
     ###################################################
     - name: Package .wcp
       run: |
         set -euxo pipefail
+
+        # Установка Wine в DESTDIR
         cd wine/build
         DESTDIR=$PWD/install make install
 
         cd install
         mkdir -p wcp/{bin,lib/wine,share}
 
+        # Копируем бинарники, библиотеки и данные
         cp -a usr/bin/* wcp/bin/ 2>/dev/null
         cp -a usr/lib/wine/* wcp/lib/wine/ 2>/dev/null
         cp -a usr/share/* wcp/share/ 2>/dev/null
 
         cd wcp/bin && ln -sf wine64 wine && cd ../..
 
-        # generate mandatory profile.json
+        # Обязательный манифест для Winlator/Ludashi
         cat > profile.json << 'EOF'
         {
-          "id": "wine-11.1-staging-tkg-arm64ec",
-          "name": "Wine 11.1 Staging-TkG",
+          "id": "wine-11.1‑staging‑tkg‑arm64ec",
+          "name": "Wine 11.1 Staging‑tkg Arm64EC",
           "version": "11.1",
           "arch": "arm64ec",
           "files": {
@@ -229,5 +230,5 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: wine-wcp-arm64ec
+        name: wine-11.1-staging-tkg-arm64ec
         path: wine-11.1-staging-tkg-arm64ec.wcp
