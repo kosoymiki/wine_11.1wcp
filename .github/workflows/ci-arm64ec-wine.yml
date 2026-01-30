@@ -17,13 +17,13 @@ jobs:
 
     steps:
 
-    # ------------------ Checkout ------------------
-    - name: Checkout source
+    # ---------- Checkout ----------
+    - name: Checkout repo
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    # ------------------ Dependencies ------------------
+    # ---------- Dependencies ----------
     - name: Install dependencies
       run: |
         set -euxo pipefail
@@ -43,11 +43,9 @@ jobs:
           libxcomposite-dev libxdamage-dev \
           libv4l-dev libopencv-dev \
           libpcsclite-dev libkrb5-dev libcups2-dev \
-          libgnutls28-dev libsane-dev \
-          rsync file zip xz-utils
-        sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config || true
+          libgnutls28-dev libsane-dev rsync file zip xz-utils
 
-    # ------------------ llvm-mingw ------------------
+    # ---------- llvm‑mingw Setup ----------
     - name: Setup llvm-mingw
       run: |
         set -euxo pipefail
@@ -62,14 +60,14 @@ jobs:
         rm -f "${ASSET}"
         echo "$ROOT/llvm-mingw/bin" >> "$GITHUB_PATH"
 
-    - name: Verify llvm-mingw
+    - name: Verify cross tools
       run: |
         set -euxo pipefail
         arm64ec-w64-mingw32-clang --version
         arm64ec-w64-mingw32-clang++ --version
 
-    # ------------------ Clone ------------------
-    - name: Clone Wine repos
+    # ---------- Clone wine + staging ----------
+    - name: Clone Wine sources
       run: |
         set -euxo pipefail
         git clone --depth 1 --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
@@ -80,56 +78,48 @@ jobs:
         set -euxo pipefail
         python3 wine-staging/staging/patchinstall.py -d wine -a --no-autoconf
 
-    # ------------------ Build wine-tools ------------------
-    - name: Build wine-tools (native)
+    # ---------- Build wine tools (native) ----------
+    - name: Build wine-tools natively
       run: |
         set -euxo pipefail
-        cd wine
+        mkdir wine-tools-build
+        cd wine-tools-build
 
-        # regen autotools
-        autoreconf -vfi --force --install
-
-        # configure build for tools
-        ./configure \
+        # configure native tools build
+        ../wine/configure \
           --disable-tests \
           --disable-win16 \
           --enable-tools \
           --with-freetype \
           --with-fontconfig
 
-        # build *only* the binaries needed
-        make -j$(nproc) \
-          tools/makedep/makedep \
-          tools/winebuild/winebuild \
-          tools/widl/widl \
-          tools/wrc/wrc \
-          tools/wmc/wmc
+        # build all tools
+        make -j$(nproc)
 
-        # install only executables (this fixes the cp errors)
-        mkdir -p ../wine-tools/tools
-        cp tools/makedep/makedep     ../wine-tools/tools/
-        cp tools/winebuild/winebuild ../wine-tools/tools/
-        cp tools/widl/widl           ../wine-tools/tools/
-        cp tools/wrc/wrc             ../wine-tools/tools/
-        cp tools/wmc/wmc             ../wine-tools/tools/
+        # install tools to isolated dir
+        mkdir -p wine-tools
+        cp tools/makedep/makedep          wine-tools/
+        cp tools/winebuild/winebuild      wine-tools/
+        cp tools/widl/widl                wine-tools/
+        cp tools/wrc/wrc                  wine-tools/
+        cp tools/wmc/wmc                  wine-tools/
 
-    # ------------------ Configure Wine ------------------
-    - name: Configure Wine (cross)
+    # ---------- Cross config & build ----------
+    - name: Configure Wine (ARM64EC)
       run: |
         set -euxo pipefail
         ROOT="$(pwd)"
         export PATH="$ROOT/llvm-mingw/bin:$PATH"
 
-        rm -rf wine-build
-        mkdir wine-build
-        cd wine-build
+        mkdir wine-cross-build
+        cd wine-cross-build
 
         export CC=arm64ec-w64-mingw32-clang
         export CXX=arm64ec-w64-mingw32-clang++
 
         ../wine/configure \
           --prefix=/usr \
-          --with-wine-tools="$ROOT/wine-tools" \
+          --with-wine-tools="$ROOT/wine-tools-build/wine-tools" \
           --host=arm64ec-w64-mingw32 \
           --sysroot="$ROOT/llvm-mingw/aarch64-unknown-linux-gnu" \
           --enable-win64 \
@@ -142,22 +132,19 @@ jobs:
           --with-alsa \
           --with-pulse
 
-    # ------------------ Build Wine ------------------
     - name: Build Wine
       run: |
         set -euxo pipefail
-        cd wine-build
-        make -j"$(nproc)"
+        cd wine-cross-build
+        make -j$(nproc)
 
-    # ------------------ Install Wine ------------------
     - name: Install Wine
       run: |
         set -euxo pipefail
-        cd wine-build
+        cd wine-cross-build
         DESTDIR="$PWD/wine-install" make install
 
-    # ------------------ Package ------------------
-    - name: Assemble PHAT wcp
+    - name: Package PHAT wcp
       run: |
         set -euxo pipefail
         ROOT="$(pwd)"
