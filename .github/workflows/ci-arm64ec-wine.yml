@@ -39,7 +39,7 @@ jobs:
           libpcsclite-dev libkrb5-dev libcups2-dev libgnutls28-dev \
           libsane-dev rsync file zip xz-utils unzip python3-setuptools
 
-    # 3) Setup llvm‑mingw 20251216
+    # 3) Setup llvm‑mingw
     - name: Setup llvm‑mingw
       run: |
         set -euxo pipefail
@@ -66,7 +66,6 @@ jobs:
         set -euxo pipefail
         cd wine
 
-        # Формируем список исключаемых патчей (ntsync/proton/alsa/pulse)
         excludes=""
         for f in ../wine-staging/patches/*.patch; do
           fname="$(basename "$f")"
@@ -78,11 +77,10 @@ jobs:
           esac
         done
 
-        # patchinstall.py принимает только реальные имена (-W)
         if [[ -f ../wine-staging/staging/patchinstall.py ]]; then
           python3 ../wine-staging/staging/patchinstall.py --all $excludes --destdir="$(pwd)"
         else
-          echo "ERROR: staging/patchinstall.py not found"
+          echo "ERROR: patchinstall.py not found!"
           exit 1
         fi
 
@@ -98,7 +96,6 @@ jobs:
         git clone https://github.com/openglfreak/wine-tkg-userpatches.git wine-userpatches-src || true
         git clone https://github.com/Frogging-Family/community-patches.git community-patches-src || true
 
-        # esync/fsync
         if [[ -d wine-tkg-src/wine-tkg-git/wine-tkg-patches/esync-fsync ]]; then
           for P in wine-tkg-src/wine-tkg-git/wine-tkg-patches/esync-fsync/*.patch; do
             [[ -f "$P" ]] || continue
@@ -107,7 +104,6 @@ jobs:
           done
         fi
 
-        # general
         if [[ -d wine-tkg-src/wine-tkg-git/wine-tkg-patches/general ]]; then
           for P in wine-tkg-src/wine-tkg-git/wine-tkg-patches/general/*.patch; do
             [[ -f "$P" ]] || continue
@@ -118,7 +114,6 @@ jobs:
           done
         fi
 
-        # misc
         if [[ -d wine-tkg-src/wine-tkg-git/wine-tkg-patches/misc ]]; then
           for P in wine-tkg-src/wine-tkg-git/wine-tkg-patches/misc/*.patch; do
             [[ -f "$P" ]] || continue
@@ -129,24 +124,19 @@ jobs:
           done
         fi
 
-        # aggregated tkg staging
         if [[ -f wine-tkg-src/wine-tkg-git/wine-tkg-staging.patch ]]; then
-          echo "Applying wine-tkg-staging.patch"
           patch -p1 < wine-tkg-src/wine-tkg-git/wine-tkg-staging.patch || true
         fi
 
-        # userpatches
         if [[ -d wine-userpatches-src/patches ]]; then
           for P in wine-userpatches-src/patches/*.patch; do
             [[ -f "$P" ]] || continue
             [[ "$P" == *ntsync* ]] && continue
             [[ "$P" == *proton* ]] && continue
-            echo "Applying userpatch: $P"
             patch -p1 < "$P" || true
           done
         fi
 
-        # community patches
         apply_dir() {
           local DIR="$1"
           if [[ -d "$DIR" ]]; then
@@ -154,14 +144,12 @@ jobs:
               [[ -f "$P" ]] || continue
               [[ "$P" == *ntsync* ]] && continue
               [[ "$P" == *proton* ]] && continue
-              echo "Applying community patch: $P"
               patch -p1 < "$P" || true
             done
           fi
         }
         apply_dir "community-patches-src/wine-tkg-git"
         apply_dir "community-patches-src/wine"
-
         cd ..
 
     # 7) Prepare Wine build system
@@ -175,19 +163,31 @@ jobs:
         autoreconf -f
         cd ..
 
-    # 8) Build wine-tools
+    # 8) Build wine tools (fixed)
     - name: Build wine tools
       run: |
         set -euxo pipefail
-        mkdir wine-tools-build && cd wine-tools-build
-        ../wine/configure --enable-tools --disable-tests --disable-win16 --enable-archs=aarch64,i386
+        mkdir wine-tools-build
+        cd wine-tools-build
+        ../wine/configure \
+          --enable-tools --disable-tests --disable-win16 --enable-archs=aarch64,i386
         make -j"$(nproc)"
         mkdir -p ../wine-tools
-        cp tools/makedep/makedep ../wine-tools/
-        cp tools/winebuild/winebuild ../wine-tools/
-        cp tools/widl/widl ../wine-tools/
-        cp tools/wrc/wrc ../wine-tools/
-        cp tools/wmc/wmc ../wine-tools/
+
+        if [[ -f tools/winebuild/winebuild ]]; then cp tools/winebuild/winebuild ../wine-tools/; fi
+        if [[ -f tools/widl/widl ]]; then cp tools/widl/widl ../wine-tools/; fi
+        if [[ -f tools/wrc/wrc ]]; then cp tools/wrc/wrc ../wine-tools/; fi
+        if [[ -f tools/wmc/wmc ]]; then cp tools/wmc/wmc ../wine-tools/; fi
+
+        if [[ -f tools/makedep/makedep ]]; then
+          cp tools/makedep/makedep ../wine-tools/
+        elif [[ -f makedep ]]; then
+          cp makedep ../wine-tools/
+        else
+          echo "No makedep found — skipping"
+        fi
+
+        cd ..
 
     # 9) Configure Wine cross‑compile
     - name: Configure Wine cross‑compile
