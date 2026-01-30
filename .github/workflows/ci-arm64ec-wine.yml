@@ -17,13 +17,13 @@ jobs:
 
     steps:
 
-    # ――― Checkout ―――
-    - name: Checkout
+    # ------------------ Checkout ------------------
+    - name: Checkout source
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    # ――― Install Dev Dependencies ―――
+    # ------------------ Dependencies ------------------
     - name: Install dependencies
       run: |
         set -euxo pipefail
@@ -47,7 +47,7 @@ jobs:
           rsync file zip xz-utils
         sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config || true
 
-    # ――― Setup llvm‑mingw Toolchain ―――
+    # ------------------ llvm-mingw ------------------
     - name: Setup llvm-mingw
       run: |
         set -euxo pipefail
@@ -62,36 +62,34 @@ jobs:
         rm -f "${ASSET}"
         echo "$ROOT/llvm-mingw/bin" >> "$GITHUB_PATH"
 
-    # ――― Verify Cross Toolchain ―――
     - name: Verify llvm-mingw
       run: |
         set -euxo pipefail
         arm64ec-w64-mingw32-clang --version
         arm64ec-w64-mingw32-clang++ --version
 
-    # ――― Clone Wine & Wine‑Staging ―――
+    # ------------------ Clone ------------------
     - name: Clone Wine repos
       run: |
         set -euxo pipefail
         git clone --depth 1 --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
         git clone --depth 1 --branch v11.1 https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
-    # ――― Apply Staging Patches ―――
     - name: Apply staging patches
       run: |
         set -euxo pipefail
         python3 wine-staging/staging/patchinstall.py -d wine -a --no-autoconf
 
-    # ――― Build wine-tools ―――
+    # ------------------ Build wine-tools ------------------
     - name: Build wine-tools (native)
       run: |
         set -euxo pipefail
         cd wine
 
-        # regenerate autotools config
+        # regen autotools
         autoreconf -vfi --force --install
 
-        # configure so tools are enabled
+        # configure build for tools
         ./configure \
           --disable-tests \
           --disable-win16 \
@@ -99,7 +97,7 @@ jobs:
           --with-freetype \
           --with-fontconfig
 
-        # directly build only the tools we need
+        # build *only* the binaries needed
         make -j$(nproc) \
           tools/makedep/makedep \
           tools/winebuild/winebuild \
@@ -107,7 +105,7 @@ jobs:
           tools/wrc/wrc \
           tools/wmc/wmc
 
-        # install to wine-tools
+        # install only executables (this fixes the cp errors)
         mkdir -p ../wine-tools/tools
         cp tools/makedep/makedep     ../wine-tools/tools/
         cp tools/winebuild/winebuild ../wine-tools/tools/
@@ -115,8 +113,8 @@ jobs:
         cp tools/wrc/wrc             ../wine-tools/tools/
         cp tools/wmc/wmc             ../wine-tools/tools/
 
-    # ――― Configure Wine ―――
-    - name: Configure Wine (cross compile)
+    # ------------------ Configure Wine ------------------
+    - name: Configure Wine (cross)
       run: |
         set -euxo pipefail
         ROOT="$(pwd)"
@@ -144,21 +142,21 @@ jobs:
           --with-alsa \
           --with-pulse
 
-    # ――― Build Wine ―――
+    # ------------------ Build Wine ------------------
     - name: Build Wine
       run: |
         set -euxo pipefail
         cd wine-build
         make -j"$(nproc)"
 
-    # ――― Install Wine ―――
+    # ------------------ Install Wine ------------------
     - name: Install Wine
       run: |
         set -euxo pipefail
         cd wine-build
         DESTDIR="$PWD/wine-install" make install
 
-    # ――― Assemble PHAT wcp ―――
+    # ------------------ Package ------------------
     - name: Assemble PHAT wcp
       run: |
         set -euxo pipefail
@@ -167,7 +165,6 @@ jobs:
         cp wine-install/usr/bin/{wine,wine64,wineboot,wineserver} wcp/bin/
         rsync -a wine-install/usr/lib/wine/ wcp/lib/wine/
 
-    # ――― Upload artifact ―――
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
