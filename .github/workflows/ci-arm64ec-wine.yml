@@ -89,35 +89,44 @@ jobs:
       run: |
         set -euxo pipefail
         ROOT="$(pwd)"
-
         cd wine
 
-        # 1) Autotools генерация для Wine (host/native)
-        autoreconf -fiv
+        # Full autotools regeneration including aclocal/automake/libtoolize
+        export AUTOMAKE=automake
+        export ACLOCAL=aclocal
+        export LIBTOOLIZE=libtoolize || true   # ubuntu package might use libtoolize
+        
+        echo "Regenerating autotools for wine and subdirs"
+        autoreconf -vfi --force --install
 
-        # 2) Полная конфигурация для wine‑tools (host build)
-        ./configure \
+        # Remove old tools-build and recreate
+        rm -rf tools-build
+        mkdir tools-build
+        cd tools-build
+
+        # Configure with updated autotools
+        ../configure \
           --disable-tests \
           --disable-win16 \
-          --enable-tools \
           --with-freetype \
           --with-fontconfig
 
-        # 3) Собрать только инструменты
-        make -j"$(nproc)" tools/winebuild/winebuild \
-                         tools/widl/widl \
-                         tools/wrc/wrc \
-                         tools/wmc/wmc \
-                         tools/makedep/makedep
+        # Now build all tools including makedep
+        make -j"$(nproc)" \
+          tools/makedep/makedep \
+          tools/winebuild/winebuild \
+          tools/widl/widl \
+          tools/wrc/wrc \
+          tools/wmc/wmc
 
-        # 4) Установить wine-tools в отдельную директорию
-        WORKTOOLS="$ROOT/wine-tools"
-        mkdir -p "$WORKTOOLS/tools"
-        cp tools/winebuild/winebuild "$WORKTOOLS/tools/"
-        cp tools/widl/widl           "$WORKTOOLS/tools/"
-        cp tools/wrc/wrc             "$WORKTOOLS/tools/"
-        cp tools/wmc/wmc             "$WORKTOOLS/tools/"
-        cp tools/makedep/makedep     "$WORKTOOLS/tools/"
+        # Collect resulting binaries
+        mkdir -p "$ROOT/wine-tools/tools"/{winebuild,widl,wrc,wmc,makedep}
+
+        cp tools/winebuild/winebuild "$ROOT/wine-tools/tools/winebuild/"
+        cp tools/widl/widl           "$ROOT/wine-tools/tools/widl/"
+        cp tools/wrc/wrc             "$ROOT/wine-tools/tools/wrc/"
+        cp tools/wmc/wmc             "$ROOT/wine-tools/tools/wmc/"
+        cp tools/makedep/makedep     "$ROOT/wine-tools/tools/makedep/"
 
     - name: Configure Wine (cross ARM64EC)
       run: |
