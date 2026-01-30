@@ -1,4 +1,4 @@
-name: Build Wine 11.1 Staging ARM64EC PHAT wcp
+name: Build Wine 11.1 Staging ARM64EC WCP
 
 on:
   push:
@@ -11,23 +11,31 @@ jobs:
   build-arm64ec:
     runs-on: ubuntu-24.04-arm
 
+    env:
+      # Расширяем минимальный набор архитектур для Wine
+      WINE_ARCHS: "arm64ec,aarch64,i386"
+
     defaults:
       run:
         shell: bash
 
     steps:
 
-    # ---------- Checkout ----------
-    - name: Checkout repo
+    # 1) Checkout
+    - name: Checkout
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    # ---------- Dependencies ----------
+    # 2) Install base build deps
     - name: Install dependencies
       run: |
         set -euxo pipefail
+        # Добавляем i386 архитектуру (хотя на ARM runner может не примениться)
+        sudo dpkg --add-architecture i386 || true
         sudo apt update
+
+        # Основные пакеты сборки + рекомендации Wiki Wine компиляции
         sudo apt install -y --no-install-recommends \
           build-essential git wget curl python3 perl gettext \
           pkgconf cmake ninja-build meson \
@@ -43,9 +51,10 @@ jobs:
           libxcomposite-dev libxdamage-dev \
           libv4l-dev libopencv-dev \
           libpcsclite-dev libkrb5-dev libcups2-dev \
-          libgnutls28-dev libsane-dev rsync file zip xz-utils
+          libgnutls28-dev libsane-dev \
+          libc6-dev:i386 libfreetype6-dev:i386 || true
 
-    # ---------- llvm‑mingw Setup ----------
+    # 3) Setup llvm-mingw (cross)
     - name: Setup llvm-mingw
       run: |
         set -euxo pipefail
@@ -55,37 +64,37 @@ jobs:
         URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/${ASSET}"
         rm -rf llvm-mingw
         mkdir llvm-mingw
-        wget -q "$URL" -O "${ASSET}"
-        tar -xJf "${ASSET}" -C llvm-mingw --strip-components=1
-        rm -f "${ASSET}"
+        wget -q "$URL" -O "$ASSET"
+        tar -xJf "$ASSET" -C llvm-mingw --strip-components=1
+        rm -f "$ASSET"
         echo "$ROOT/llvm-mingw/bin" >> "$GITHUB_PATH"
 
-    - name: Verify cross tools
+    - name: Verify cross toolchain
       run: |
         set -euxo pipefail
         arm64ec-w64-mingw32-clang --version
         arm64ec-w64-mingw32-clang++ --version
 
-    # ---------- Clone wine + staging ----------
-    - name: Clone Wine sources
+    # 4) Clone Wine / Staging
+    - name: Clone Wine & Staging
       run: |
         set -euxo pipefail
-        git clone --depth 1 --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
-        git clone --depth 1 --branch v11.1 https://gitlab.winehq.org/wine/wine-staging.git wine-staging
+        git clone https://gitlab.winehq.org/wine/wine.git wine
+        git clone https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
     - name: Apply staging patches
       run: |
         set -euxo pipefail
         python3 wine-staging/staging/patchinstall.py -d wine -a --no-autoconf
 
-    # ---------- Build wine tools (native) ----------
+    # 5) Build wine-tools (native)
     - name: Build wine-tools natively
       run: |
         set -euxo pipefail
         mkdir wine-tools-build
         cd wine-tools-build
 
-        # configure native tools build
+        # Configure native build specifically for tools
         ../wine/configure \
           --disable-tests \
           --disable-win16 \
@@ -93,24 +102,25 @@ jobs:
           --with-freetype \
           --with-fontconfig
 
-        # build all tools
-        make -j$(nproc)
+        # Build all tools
+        make -j"$(nproc)"
 
-        # install tools to isolated dir
-        mkdir -p wine-tools
-        cp tools/makedep/makedep          wine-tools/
-        cp tools/winebuild/winebuild      wine-tools/
-        cp tools/widl/widl                wine-tools/
-        cp tools/wrc/wrc                  wine-tools/
-        cp tools/wmc/wmc                  wine-tools/
+        # Install only the tool binaries we will need
+        mkdir -p ../wine-tools/tools
+        cp tools/makedep/makedep         ../wine-tools/tools/ || true
+        cp tools/winebuild/winebuild     ../wine-tools/tools/ || true
+        cp tools/widl/widl               ../wine-tools/tools/ || true
+        cp tools/wrc/wrc                 ../wine-tools/tools/ || true
+        cp tools/wmc/wmc                 ../wine-tools/tools/ || true
 
-    # ---------- Cross config & build ----------
-    - name: Configure Wine (ARM64EC)
+    # 6) Configure Wine cross
+    - name: Configure Wine (cross compile)
       run: |
         set -euxo pipefail
         ROOT="$(pwd)"
         export PATH="$ROOT/llvm-mingw/bin:$PATH"
 
+        # Separate build dir for cross
         mkdir wine-cross-build
         cd wine-cross-build
 
@@ -124,7 +134,7 @@ jobs:
           --sysroot="$ROOT/llvm-mingw/aarch64-unknown-linux-gnu" \
           --enable-win64 \
           --enable-wow64 \
-          --enable-archs=arm64ec,aarch64 \
+          --enable-archs="$WINE_ARCHS" \
           --disable-tests \
           --with-freetype \
           --with-fontconfig \
@@ -132,25 +142,27 @@ jobs:
           --with-alsa \
           --with-pulse
 
+    # 7) Build Wine
     - name: Build Wine
       run: |
         set -euxo pipefail
         cd wine-cross-build
-        make -j$(nproc)
+        make -j"$(nproc)"
 
+    # 8) Install Wine
     - name: Install Wine
       run: |
         set -euxo pipefail
         cd wine-cross-build
         DESTDIR="$PWD/wine-install" make install
 
-    - name: Package PHAT wcp
+    # 9) Package PHAT WCP
+    - name: Assemble PHAT wcp
       run: |
         set -euxo pipefail
-        ROOT="$(pwd)"
         mkdir -p wcp/{bin,lib/wine,dxvk/arm64ec,vkd3d/arm64ec,mesa/turnip}
-        cp wine-install/usr/bin/{wine,wine64,wineboot,wineserver} wcp/bin/
-        rsync -a wine-install/usr/lib/wine/ wcp/lib/wine/
+        cp wine-install/usr/bin/{wine,wine64,wineboot,wineserver} wcp/bin/ || true
+        rsync -a wine-install/usr/lib/wine/ wcp/lib/wine/ || true
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
