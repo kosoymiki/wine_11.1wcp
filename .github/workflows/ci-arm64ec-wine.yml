@@ -29,40 +29,36 @@ jobs:
     ###################################################
     - name: Install build dependencies
       run: |
-        # Обновление списка пакетов и установка необходимых утилит и dev‑библиотек
         set -euxo pipefail
         sudo apt update
         sudo apt install -y --no-install-recommends \
-        build-essential autoconf automake libtool pkg-config \
-        python3 python3-pip git gettext flex bison \
-        ninja-build cmake \
-        libasound2-dev libpulse-dev libv4l-dev libgl-dev \
-        libx11-dev libxext-dev libxfixes-dev libxinerama-dev libxi-dev \
-        libxrandr-dev libxrender-dev libfontconfig-dev libfreetype-dev \
-        libgnutls28-dev libdbus-1-dev libsdl2-dev \
-        libjpeg-dev libpng-dev libxml2-dev \
-        libudev-dev libusb-1.0-0-dev libldap2-dev \
-        pkgconf
+          build-essential autoconf automake libtool pkg-config \
+          python3 python3-pip git gettext flex bison \
+          ninja-build cmake \
+          libasound2-dev libpulse-dev libv4l-dev libgl-dev \
+          libx11-dev libxext-dev libxfixes-dev libxinerama-dev libxi-dev \
+          libxrandr-dev libxrender-dev libfontconfig-dev libfreetype-dev \
+          libgnutls28-dev libdbus‑1-dev libsdl2-dev \
+          libjpeg-dev libpng-dev libxml2-dev \
+          libudev-dev libusb‑1.0‑0-dev libldap2-dev
         sudo apt clean
         sudo rm -rf /var/lib/apt/lists/*
 
     ###################################################
-    # 3) Setup LLVM‑mingw cross toolchain
+    # 3) Setup llvm-mingw cross toolchain
     ###################################################
     - name: Setup llvm-mingw
       run: |
-        # Скачиваем официальную сборку llvm-mingw для ARM64
         set -euxo pipefail
         TOOLCHAIN_VER="20260127"
         ARCHIVE="llvm-mingw-${TOOLCHAIN_VER}-ucrt-ubuntu-22.04-aarch64.tar.xz"
-        URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${TOOLCHAIN_VER}/${ARCHIVE}"
-        wget -q "$URL"
+        wget -q "https://github.com/mstorsjo/llvm-mingw/releases/download/${TOOLCHAIN_VER}/${ARCHIVE}"
         mkdir -p llvm-mingw
         tar -xJf "$ARCHIVE" -C llvm-mingw --strip-components=1
         echo "$PWD/llvm-mingw/bin" >> "$GITHUB_PATH"
 
     ###################################################
-    # 4) Clone Wine & Patches
+    # 4) Clone Wine & patches
     ###################################################
     - name: Clone Wine & Patches
       run: |
@@ -72,7 +68,7 @@ jobs:
         git clone https://github.com/Frogging-Family/wine-tkg-git.git wine-tkg
 
     ###################################################
-    # 5) Apply patches
+    # 5) Apply Staging patches
     ###################################################
     - name: Apply Staging patches
       run: |
@@ -80,28 +76,39 @@ jobs:
         cd wine
         python3 ../wine-staging/staging/patchinstall.py DESTDIR="$(pwd)" --all
 
-    - name: Apply wine-tkg patches
+    ###################################################
+    # 6) Prepare wine-tkg configuration
+    ###################################################
+    - name: Generate wine-tkg customization.cfg
       run: |
         set -euxo pipefail
-        cd wine
-        for DIR in \
-          ../wine-tkg/wine-tkg-git/wine-tkg-patches/esync-fsync \
-          ../wine-tkg/wine-tkg-git/wine-tkg-patches/general \
-          ../wine-tkg/wine-tkg-git/wine-tkg-patches/misc; do
-          for patch in "$DIR"/*.patch; do
-            patch -p1 < "$patch" || true
-          done
-        done
+        mkdir -p wine/tkg-custom
+        cat > wine/tkg-custom/customization.cfg << 'EOF'
+        ################################################################################
+        #  Winlator‑oriented wine‑tkg config
+        ################################################################################
+        _use_staging="true"
+        _use_esync="true"
+        _use_fsync="true"
+        _use_mono="false"
+        _use_gecko="false"
+        _use_fullscreen_hack="true"
+        _optimize_cflags="-O2"
+        _optimize_cxxflags="-O2"
+        _EXTERNAL_INSTALL="false"
+        ################################################################################
+        EOF
 
     ###################################################
-    # 6) Build Wine Tools & Wine
+    # 7) Configure & Compile Wine with wine-tools
     ###################################################
-    - name: Configure & Compile Wine with wine-tools
+    - name: Configure & Compile Wine
       run: |
         set -euxo pipefail
+
         cd wine
 
-        # Собираем wine-tools локально — они нужны для cross‑compile
+        # ── Build wine-tools locally (needed for cross compile)
         mkdir wine-tools-build
         cd wine-tools-build
         ../configure \
@@ -112,11 +119,13 @@ jobs:
         make -j"$(nproc)"
         cd ..
 
-        # Создаём cross build директорию для Wine
+        # ── Run tkg prepare to apply all patches from customization.cfg
+        bash ../wine-tkg/wine-tkg-git/wine-tkg-scripts/prepare.sh
+
+        # ── Cross compile Wine
         mkdir build
         cd build
 
-        # Экспортируем переменные для cross‑компиляции
         export BUILD=aarch64-linux-gnu
         export HOST=aarch64-w64-mingw32
         export CC=aarch64-w64-mingw32-clang
@@ -126,7 +135,6 @@ jobs:
         export RC=aarch64-w64-mingw32-windres
         export RANLIB=aarch64-w64-mingw32-ranlib
 
-        # Конфигурируем Wine с указанной директорией wine-tools
         ../configure \
           --build="$BUILD" \
           --host="$HOST" \
@@ -146,7 +154,7 @@ jobs:
         make -j"$(nproc)"
 
     ###################################################
-    # 7) Build DXVK
+    # 8) Build DXVK
     ###################################################
     - name: Build DXVK
       run: |
@@ -160,12 +168,12 @@ jobs:
         ninja -C build && ninja -C build install
 
     ###################################################
-    # 8) Build VKD3D‑Proton
+    # 9) Build VKD3D‑Proton
     ###################################################
-    - name: Build VKD3D-Proton
+    - name: Build VKD3D‑Proton
       run: |
         set -euxo pipefail
-        git clone https://github.com/HansKristian‑Work/vkd3d‑proton.git vkd3d
+        git clone https://github.com/HansKristian-Work/vkd3d-proton.git vkd3d
         cd vkd3d
         git submodule update --init --recursive
         meson setup build --cross-file=../wine/build/config/meson.cross.arm64ec.ini \
@@ -173,7 +181,7 @@ jobs:
         ninja -C build && ninja -C build install
 
     ###################################################
-    # 9) Build TURNIP Mesa Vulkan
+    # 10) Build TURNIP Mesa Vulkan
     ###################################################
     - name: Build TURNIP Mesa
       run: |
@@ -190,30 +198,30 @@ jobs:
         ninja -C builddir && ninja -C builddir install
 
     ###################################################
-    # 10) Packaging .wcp for Winlator
+    # 11) Packaging .wcp for Winlator
     ###################################################
     - name: Package .wcp
       run: |
         set -euxo pipefail
 
-        # Установка Wine в DESTDIR
         cd wine/build
         DESTDIR=$PWD/install make install
 
         cd install
         mkdir -p wcp/{bin,lib/wine,share}
 
-        # Копируем бинарники, библиотеки и данные
         cp -a usr/bin/* wcp/bin/ 2>/dev/null
         cp -a usr/lib/wine/* wcp/lib/wine/ 2>/dev/null
         cp -a usr/share/* wcp/share/ 2>/dev/null
 
         cd wcp/bin && ln -sf wine64 wine && cd ../..
 
-        # Обязательный манифест для Winlator/Ludashi
+        find bin -type f -exec chmod +x {} +
+        find lib -name "*.so*" -exec chmod +x {} +
+
         cat > profile.json << 'EOF'
         {
-          "id": "wine-11.1‑staging‑tkg‑arm64ec",
+          "id": "wine-11.1-staging-tkg-arm64ec",
           "name": "Wine 11.1 Staging‑tkg Arm64EC",
           "version": "11.1",
           "arch": "arm64ec",
@@ -227,8 +235,11 @@ jobs:
 
         tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-tkg-arm64ec.wcp" profile.json wcp
 
+    ###################################################
+    # 12) Upload artifact
+    ###################################################
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: wine-11.1-staging-tkg-arm64ec
+        name: wine-wcp-arm64ec
         path: wine-11.1-staging-tkg-arm64ec.wcp
