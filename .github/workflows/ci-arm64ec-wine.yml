@@ -92,10 +92,10 @@ jobs:
         ROOT="$(pwd)"
         cd wine
 
-        # Полная регенерация autotools
+        # 1) Полная регенерация autotools
         autoreconf -vfi --force --install
 
-        # Конфигурировать корневой проект так, чтобы инструменты были включены
+        # 2) Конфигурировать корневой проект, чтобы инструменты были включены
         ./configure \
           --disable-tests \
           --disable-win16 \
@@ -103,10 +103,13 @@ jobs:
           --with-freetype \
           --with-fontconfig
 
-        # Убедиться, что Makefile действительно содержит правила для makedep
-        grep -q "tools/makedep/makedep" Makefile
+        # Проверяем, что Makefile действительно содержит правила для makedep
+        if ! grep -q "tools/makedep/makedep" Makefile; then
+          echo "ERROR: makedep target not found in Makefile"
+          exit 1
+        fi
 
-        # Собрать инструменты из корневого Makefile
+        # 3) Собираем инструменты из корневого Makefile
         make -j"$(nproc)" \
           tools/makedep/makedep \
           tools/winebuild/winebuild \
@@ -114,14 +117,16 @@ jobs:
           tools/wrc/wrc \
           tools/wmc/wmc
 
-        # Подготовить директорию wine-tools
+        # 4) Устанавливаем их в wine-tools
         mkdir -p "$ROOT/wine-tools/tools"
 
         cp tools/makedep/makedep     "$ROOT/wine-tools/tools/"
-        cp tools/winebuild/winebuild "$ROOT/wine-tools/tools/"
-        cp tools/widl/widl           "$ROOT/wine-tools/tools/"
-        cp tools/wrc/wrc             "$ROOT/wine-tools/tools/"
-        cp tools/wmc/wmc             "$ROOT/wine-tools/tools/"
+        cp tools/winebuild/winebuild "$ROOT/wine‑tools/tools/"
+        cp tools/widl/widl           "$ROOT/wine‑tools/tools/"
+        cp tools/wrc/wrc             "$ROOT/wine‑tools/tools/"
+        cp tools/wmc/wmc             "$ROOT/wine‑tools/tools/"
+
+        echo "wine-tools built and copied"
         
     - name: Configure Wine (cross ARM64EC)
       run: |
