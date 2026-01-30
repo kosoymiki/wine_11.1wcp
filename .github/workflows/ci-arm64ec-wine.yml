@@ -150,7 +150,6 @@ jobs:
           --without-gecko \
           --with-freetype \
           --with-fontconfig \
-          --with-dbus \
           --with-alsa \
           --with-pulse
 
