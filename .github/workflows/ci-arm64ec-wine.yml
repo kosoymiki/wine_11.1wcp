@@ -25,243 +25,122 @@ jobs:
     - name: Install base build dependencies
       run: |
         set -euxo pipefail
-
-        # Обновление кэша пакетов
         sudo apt update
-
-        # Основные инструменты сборки и dev‑пакеты для Wine
         sudo apt install -y --no-install-recommends \
           build-essential git wget curl python3 perl gettext \
           pkgconf cmake ninja-build meson \
           autoconf automake libtool patchutils bison flex \
           libc6-dev linux-libc-dev \
-          libfreetype-dev libfontconfig-dev \
-          libdbus-1-dev \
+          libfreetype-dev libfontconfig-dev libdbus-1-dev \
           libx11-dev libxext-dev libxrender-dev \
-          libxrandr-dev libxinerama-dev \
-          libxcursor-dev libxi-dev libxfixes-dev \
-          libsdl2-dev \
+          libxrandr-dev libxinerama-dev libxcursor-dev \
+          libxi-dev libxfixes-dev libsdl2-dev \
           libpulse-dev libasound2-dev \
           libudev-dev libgl-dev \
           libusb-1.0-0-dev libpcap-dev \
           libxcomposite-dev libxdamage-dev \
           libv4l-dev libopencv-dev \
+          libpcsclite-dev libkrb5-dev libcups2-dev \
+          libgnutls28-dev libsane-dev \
           rsync file zip xz-utils
-
-        # Убедиться, что pkg-config доступен как pkg-config и pkgconf
         sudo ln -sf /usr/bin/pkgconf /usr/local/bin/pkg-config || true
-
-        # Проверка версий инструментов
         pkg-config --version
         gcc --version
         g++ --version
 
-        
     - name: Setup llvm-mingw (prebuilt Linux cross)
       run: |
         set -euxo pipefail
-
         ROOT="$(pwd)"
         LLVM_MINGW_VERSION="20251216"
         ASSET="llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz"
         URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/${ASSET}"
-
         rm -rf "$ROOT/llvm-mingw"
         mkdir -p "$ROOT/llvm-mingw"
-
-        echo "Downloading llvm-mingw from: $URL"
         wget -q "$URL" -O "$ROOT/$ASSET"
-
         tar -xJf "$ROOT/$ASSET" -C "$ROOT/llvm-mingw" --strip-components=1
         rm -f "$ROOT/$ASSET"
-
-        # Добавление mingw‑toolchain в PATH
         echo "$ROOT/llvm-mingw/bin" >> "$GITHUB_PATH"
+        ls -1 "$ROOT/llvm-mingw/bin" | head -n 80 || true
 
-        # Диагностика содержимого bin
-        ls -1 "$ROOT/llvm-mingw/bin" > "$RUNNER_TEMP/llvm_mingw_bin_list.txt" || true
-        echo "First lines of llvm-mingw/bin:"
-        head -n 80 "$RUNNER_TEMP/llvm_mingw_bin_list.txt" || true
-
-        # Проверка существующих компиляторов
-        echo "Check available cross‑compiler binaries:"
-        if command -v arm64ec-w64-mingw32-clang >/dev/null 2>&1; then
-          arm64ec-w64-mingw32-clang --version
-        else
-          echo "arm64ec-w64-mingw32-clang not found"
-        fi
-
-        if command -v aarch64-w64-mingw32uwp-clang >/dev/null 2>&1; then
-          aarch64-w64-mingw32uwp-clang --version
-        else
-          echo "aarch64-w64-mingw32uwp-clang not found"
-        fi
-        
     - name: Verify llvm-mingw cross toolchain
       run: |
         set -euxo pipefail
-        aarch64-w64-mingw32-clang --version
         arm64ec-w64-mingw32-clang --version
-        # Ensure dlltool/lld exist
-        if command -v aarch64-w64-mingw32-dlltool >/dev/null; then aarch64-w64-mingw32-dlltool --version || true; fi
-        if command -v lld >/dev/null; then lld --version || true; fi
-
-    - name: Simple cross compile test
-      run: |
-        set -euxo pipefail
-        echo 'int main(void){return 0;}' > /tmp/test.c
-        aarch64-w64-mingw32-clang -o /tmp/test.exe /tmp/test.c -Wl,--no-undefined
-        file /tmp/test.exe
+        arm64ec-w64-mingw32-clang++ --version
+        arm64ec-w64-mingw32-widl --version || true
+        arm64ec-w64-mingw32-dlltool --version || true
 
     - name: Clone Wine & Wine-Staging
       run: |
         set -euxo pipefail
-        rm -rf wine wine-staging
         git clone --depth 1 --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
         git clone --depth 1 --branch v11.1 https://gitlab.winehq.org/wine/wine-staging.git wine-staging
 
     - name: Apply staging patches
       run: |
         set -euxo pipefail
-        ROOT="$(pwd)"
-        python3 wine-staging/staging/patchinstall.py -d "$ROOT/wine" -a --no-autoconf
-        cd "$ROOT/wine"
+        python3 wine-staging/staging/patchinstall.py -d wine -a --no-autoconf
+        cd wine
         autoreconf -fiv
         ./tools/make_requests
 
-    - name: Build wine tools (native)
+    - name: Build wine-tools (native)
       run: |
         set -euxo pipefail
         ROOT="$(pwd)"
-
-        # Перейти в директорию исходников Wine
-        cd "$ROOT/wine"
-
-        # Сгенерировать autotools (configure, Makefile.in) во всех подпапках,
-        # включая tools/makedep — это важно для того, чтобы makedep получил свои правила
+        cd wine
         autoreconf -fiv
-
-        # Сборка только инструментов в отдельной папке
         rm -rf tools-build
-        mkdir tools-build
-        cd tools-build
-
-        # Конфигурация для сборки инструментов
-        ../configure \
-          --disable-tests \
-          --disable-win16 \
-          --with-freetype \
-          --with-fontconfig \
-          --without-vulkan \
-          --without-dbus \
-          --without-alsa \
-          --without-pulse \
-          --without-wayland \
-          --without-sdl
-
-        # Собрать только требуемые инструменты
-        make -j"$(nproc)" \
-          tools/winebuild/winebuild \
-          tools/widl/widl \
-          tools/wrc/wrc \
-          tools/winegcc/winegcc \
-          tools/wmc/wmc \
-          tools/makedep/makedep
-
-        # Создать директории для инструментов в wine-tools
+        mkdir tools-build && cd tools-build
+        ../configure --disable-tests --disable-win16 \
+          --with-freetype --with-fontconfig
+        make -j$(nproc) tools/winebuild/winebuild
+        make -j$(nproc) tools/widl/widl tools/wrc/wrc tools/wmc/wmc tools/makedep/makedep
         mkdir -p "$ROOT/wine-tools/tools"/{winebuild,widl,wrc,winegcc,wmc,makedep}
-
-        # Скопировать собранные бинарники туда
         cp tools/winebuild/winebuild "$ROOT/wine-tools/tools/winebuild/"
-        cp tools/widl/widl           "$ROOT/wine-tools/tools/widl/"
-        cp tools/wrc/wrc             "$ROOT/wine-tools/tools/wrc/"
-        cp tools/winegcc/winegcc     "$ROOT/wine-tools/tools/winegcc/"
-        cp tools/wmc/wmc             "$ROOT/wine-tools/tools/wmc/"
-        cp tools/makedep/makedep     "$ROOT/wine-tools/tools/makedep/"
+        cp tools/widl/widl "$ROOT/wine-tools/tools/widl/"
+        cp tools/wrc/wrc "$ROOT/wine-tools/tools/wrc/"
+        cp tools/wmc/wmc "$ROOT/wine-tools/tools/wmc/"
+        cp tools/makedep/makedep "$ROOT/wine-tools/tools/makedep/"
 
-        # Диагностика (опционально): показать содержимое wine-tools
-        ls -l "$ROOT/wine-tools/tools"
-
-    - name: Configure Wine (native + PE mix)
+    - name: Configure Wine (with cross)
       run: |
         set -euxo pipefail
         ROOT="$(pwd)"
         export PATH="$ROOT/llvm-mingw/bin:$PATH"
-
-        rm -rf "$ROOT/wine-build"
-        mkdir -p "$ROOT/wine-build"
-        cd "$ROOT/wine-build"
-
+        rm -rf wine-build
+        mkdir wine-build && cd wine-build
+        CC=arm64ec-w64-mingw32-clang \
+        CXX=arm64ec-w64-mingw32-clang++ \
         "$ROOT/wine/configure" \
           --prefix=/usr \
           --with-wine-tools="$ROOT/wine-tools" \
-          --enable-win64 \
-          --enable-wow64 \
+          --enable-win64 --enable-wow64 \
           --enable-archs=arm64ec,aarch64 \
           --disable-tests \
-          --with-freetype \
-          --with-fontconfig \
-          --with-dbus \
-          --with-alsa \
-          --with-pulse
+          --with-freetype --with-fontconfig \
+          --with-dbus --with-alsa --with-pulse
 
     - name: Build Wine
       run: |
         set -euxo pipefail
-        cd "$ROOT/wine-build"
-        make -j"$(nproc)"
+        cd wine-build
+        make -j$(nproc)
 
     - name: Install Wine
       run: |
         set -euxo pipefail
-        cd "$ROOT/wine-build"
-        rm -rf "$ROOT/wine-install"
-        DESTDIR="$ROOT/wine-install" make install
-
-    - name: Build Turnip / Mesa (optional)
-      run: |
-        set -euxo pipefail
-        ROOT="$(pwd)"
-        rm -rf "$ROOT/external"
-        mkdir -p "$ROOT/external"
-        git clone --depth 1 https://github.com/whitebelyash/mesa-tu8 "$ROOT/external/mesa-src"
-        meson setup "$ROOT/external/mesa-build" "$ROOT/external/mesa-src" \
-          -Dvulkan-drivers=turnip -Dplatforms=none -Dbuildtype=release
-        ninja -C "$ROOT/external/mesa-build"
-        DESTDIR="$ROOT/external/mesa-install" ninja -C "$ROOT/external/mesa-build" install
-
-    - name: Unpack DXVK VKD3D FEXCore
-      run: |
-        set -euxo pipefail
-        ROOT="$(pwd)"
-        mkdir -p "$ROOT/external/dxvk" "$ROOT/external/vkd3d" "$ROOT/external/fexcore"
-        wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/DXVK-GPLASYNC-ARM64EC/dxvk-gplasync-arm64ec-2.7.1-1.wcp" -O dxvk.wcp
-        tar -xJf dxvk.wcp -C "$ROOT/external/dxvk"
-        wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/VKD3D-PROTON-ARM64EC/vkd3d-proton-arm64ec-3.0b.wcp" -O vkd3d.wcp
-        tar -xJf vkd3d.wcp -C "$ROOT/external/vkd3d"
-        wget -q "https://github.com/Arihany/WinlatorWCPHub/releases/download/FEXCore/FEXCore-2601.wcp" -O fexcore.wcp
-        tar -xJf fexcore.wcp -C "$ROOT/external/fexcore"
+        cd wine-build
+        DESTDIR="$PWD/wine-install" make install
 
     - name: Assemble PHAT wcp
       run: |
         set -euxo pipefail
         ROOT="$(pwd)"
-        mkdir -p "$ROOT/wcp"/{bin,lib/wine,dxvk/arm64ec,vkd3d/arm64ec,mesa/turnip}
-        cp -v "$ROOT/wine-install/usr/bin/"{wine,wine64,wineboot,wineserver} "$ROOT/wcp/bin/" || true
-        rsync -a "$ROOT/wine-install/usr/lib/wine/" "$ROOT/wcp/lib/wine/" || true
-        rsync -a "$ROOT/external/dxvk/" "$ROOT/wcp/dxvk/arm64ec/" || true
-        rsync -a "$ROOT/external/vkd3d/" "$ROOT/wcp/vkd3d/arm64ec/" || true
-        rsync -a "$ROOT/external/fexcore/" "$ROOT/wcp/lib/wine/" || true
-
-        cat > "$ROOT/wcp/env.sh" << 'EOF'
-        #!/bin/sh
-        export WINEDEBUG=-all
-        export DXVK_ASYNC=1
-        export MESA_LOADER_DRIVER_OVERRIDE=turnip
-        export WINEPREFIX=~/.wine
-        export WINEARCH=win64
-        EOF
-        chmod +x "$ROOT/wcp/env.sh"
+        mkdir -p wcp/{bin,lib/wine}
+        cp wine-install/usr/bin/{wine,wine64,wineboot,wineserver} wcp/bin/
+        rsync -a wine-install/usr/lib/wine/ wcp/lib/wine/
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
