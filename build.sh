@@ -201,6 +201,7 @@ cd gnutls-3.8.0
   --with-included-unistring \
   --with-included-libtasn1 \
   --without-p11-kit \
+  --disable-asm
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
 
