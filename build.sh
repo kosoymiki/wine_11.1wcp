@@ -184,6 +184,50 @@ cd ..
 #####################################
 # Generate pkg‑config file for libev
 #####################################
+echo ">>> Generating pkg‑config for libev"
+
+# Ensure pkgconfig dir exists
+mkdir -p "$PREFIX_DEPS/lib/pkgconfig"
+
+# Write libev.pc
+cat > "$PREFIX_DEPS/lib/pkgconfig/libev.pc" << 'EOF'
+prefix=@PREFIX@
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${exec_prefix}/include
+
+Name: libev
+Description: High performance event loop library
+Version: @VERSION@
+Libs: -L\${libdir} -lev
+Cflags: -I\${includedir}
+EOF
+
+# Replace placeholders
+sed -i "s|@PREFIX@|$PREFIX_DEPS|g" "$PREFIX_DEPS/lib/pkgconfig/libev.pc"
+sed -i "s|@VERSION@|4.33|g" "$PREFIX_DEPS/lib/pkgconfig/libev.pc"
+
+# Info for debugging
+echo "------ libev.pc content ------"
+cat "$PREFIX_DEPS/lib/pkgconfig/libev.pc"
+echo "-----------------------------"
+
+# Ensure PKG_CONFIG_PATH includes this
+export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig:$PKG_CONFIG_PATH"
+echo "PKG_CONFIG_PATH set to: $PKG_CONFIG_PATH"
+
+# Test if pkg‑config can see libev
+if command -v aarch64-w64-mingw32-pkg-config >/dev/null 2>&1; then
+  echo "Checking libev via aarch64-w64-mingw32-pkg-config:"
+  aarch64-w64-mingw32-pkg-config --cflags libev || true
+  aarch64-w64-mingw32-pkg-config --libs libev || true
+else
+  echo "Warning: aarch64-w64-mingw32-pkg-config not found in PATH"
+fi
+
+#####################################
+# Generate pkg‑config file for libev
+#####################################
 echo ">>> Generating pkg‑config file for libev"
 
 # Ensure pkgconfig directory exists
