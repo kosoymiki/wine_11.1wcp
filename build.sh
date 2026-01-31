@@ -53,40 +53,26 @@ cd zlib
 make -j"$(nproc)" && make install
 cd ..
 
-# libpng — official release (autotools)
+#####################################
+# libpng (official autotools release)
+#####################################
+
 wget -q https://download.sourceforge.net/libpng/libpng-1.6.40.tar.xz
 tar xf libpng-1.6.40.tar.xz
 cd libpng-1.6.40
 
+# Autotools configure supports cross‑compile
 ./configure \
-  --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static \
-  CPPFLAGS="-I$PREFIX_DEPS/include" \
-  LDFLAGS="-L$PREFIX_DEPS/lib"
-make -j"$(nproc)" && make install
+  --host="${TOOLCHAIN}" \
+  --prefix="${PREFIX_DEPS}" \
+  --disable-shared \
+  --enable-static \
+  CPPFLAGS="-I${PREFIX_DEPS}/include" \
+  LDFLAGS="-L${PREFIX_DEPS}/lib"
+
+make -j"$(nproc)"
+make install
 cd ..
-
-# Generate a dedicated toolchain file
-cat > libpng.toolchain.cmake << 'EOF'
-SET(CMAKE_SYSTEM_NAME Windows)
-SET(CMAKE_SYSTEM_PROCESSOR ARM64)
-SET(CMAKE_C_COMPILER "${CC}")
-SET(CMAKE_CXX_COMPILER "${CXX}")
-SET(CMAKE_FIND_ROOT_PATH "$PREFIX_DEPS")
-SET(CMAKE_PREFIX_PATH "$PREFIX_DEPS")
-SET(PKG_CONFIG_EXECUTABLE "pkg-config")
-SET(CMAKE_INSTALL_PREFIX "$PREFIX_DEPS")
-EOF
-
-mkdir -p build && cd build
-cmake -DCMAKE_TOOLCHAIN_FILE="../libpng.toolchain.cmake" \
-      -DPNG_SHARED=OFF \
-      -DPNG_STATIC=ON \
-      -DPNG_TESTS=OFF .
-cmake --build . --parallel "$(nproc)"
-cmake --install .
-cd ../..
 
 #####################################
 # libjpeg‑turbo
