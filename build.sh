@@ -200,7 +200,8 @@ cd gnutls-3.8.0
   --with-included-unistring \
   --with-included-libtasn1 \
   --without-p11-kit \
-  --disable-asm
+  ac_cv_func_asm_sha1_armv8=false \
+  ac_cv_func_asm_aes_armv8=false
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
 
