@@ -2,32 +2,36 @@
 set -euxo pipefail
 
 #####################################
-# Install host deps if possible
+# Install system dependencies (Ubuntu)
 #####################################
-if command -v sudo &>/dev/null && command -v apt &>/dev/null; then
-    sudo apt update
-    sudo apt install -y --no-install-recommends \
-      build-essential autoconf automake libtool pkg-config \
-      python3 python3-pip git gettext flex bison \
-      ninja-build cmake meson \
-      libasound2-dev libpulse-dev libv4l-dev \
-      libx11-dev libxext-dev libxfixes-dev libxinerama-dev \
-      libxi-dev libxrandr-dev libxrender-dev \
-      libfontconfig-dev \
-      libgnutls28-dev libdbus-1-dev libsdl2-dev \
-      libjpeg-dev libpng-dev libxml2-dev \
-      libudev-dev libusb-1.0-0-dev libldap2-dev \
-      libxkbcommon-dev libxv-dev libxxf86vm-dev \
-      libxcursor-dev libxss-dev \
-      libvulkan-dev lld llvm clang
+if command -v apt &>/dev/null && command -v sudo &>/dev/null; then
+  sudo apt update
+  sudo apt install -y --no-install-recommends \
+    build-essential \
+    autoconf automake libtool pkg-config \
+    gettext gperf gtk-doc-tools autopoint \
+    flex bison \
+    ninja-build cmake meson \
+    python3 python3-pip git \
+    libasound2-dev libpulse-dev libv4l-dev \
+    libx11-dev libxext-dev libxfixes-dev libxinerama-dev \
+    libxi-dev libxrandr-dev libxrender-dev \
+    libfontconfig-dev \
+    libdbus-1-dev libsdl2-dev \
+    libjpeg-dev libpng-dev libxml2-dev \
+    libudev-dev libusb-1.0-0-dev libldap2-dev \
+    libxkbcommon-dev libxv-dev libxxf86vm-dev \
+    libxcursor-dev libxss-dev \
+    libvulkan-dev llvm clang lld
 fi
 
 #####################################
-# Configure env
+# Prepare prefix & environment
 #####################################
 PREFIX_DEPS="${PWD}/deps/install"
 mkdir -p "$PREFIX_DEPS"/{bin,include,lib/pkgconfig}
 mkdir -p deps/build
+cd deps/build
 
 export TOOLCHAIN=aarch64-w64-mingw32
 export CC=${TOOLCHAIN}-clang
@@ -36,17 +40,14 @@ export AR=${TOOLCHAIN}-ar
 export RANLIB=${TOOLCHAIN}-ranlib
 export WINDRES=${TOOLCHAIN}-windres
 
-# safe init under set -u
 export PKG_CONFIG_PATH="${PREFIX_DEPS}/lib/pkgconfig${PKG_CONFIG_PATH+:}${PKG_CONFIG_PATH:-}"
 export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 export CFLAGS="-I$PREFIX_DEPS/include${CFLAGS+: }${CFLAGS:-}"
 export LDFLAGS="-L$PREFIX_DEPS/lib${LDFLAGS+: }${LDFLAGS:-}"
 
 #####################################
-# 1) Core deps
+# 1) zlib
 #####################################
-cd deps/build
-
 git clone --depth=1 https://github.com/madler/zlib.git zlib
 cd zlib
 ./configure --prefix="$PREFIX_DEPS" --static
@@ -54,105 +55,90 @@ make -j"$(nproc)" && make install
 cd ..
 
 #####################################
-# libpng (official autotools release)
+# 2) libpng (release autotools)
 #####################################
-
 wget -q https://download.sourceforge.net/libpng/libpng-1.6.40.tar.xz
 tar xf libpng-1.6.40.tar.xz
 cd libpng-1.6.40
-
-# Autotools configure supports cross‑compile
 ./configure \
-  --host="${TOOLCHAIN}" \
-  --prefix="${PREFIX_DEPS}" \
-  --disable-shared \
-  --enable-static \
-  CPPFLAGS="-I${PREFIX_DEPS}/include" \
-  LDFLAGS="-L${PREFIX_DEPS}/lib"
-
-make -j"$(nproc)"
-make install
+  --host="$TOOLCHAIN" \
+  --prefix="$PREFIX_DEPS" \
+  --disable-shared --enable-static \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
+make -j"$(nproc)" && make install
 cd ..
 
 #####################################
-# libjpeg‑turbo
+# 3) libjpeg-turbo
 #####################################
 git clone --depth=1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg
 cd libjpeg
 cmake -S . -B build \
-      -DCMAKE_SYSTEM_NAME=Windows \
-      -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
-      -DCMAKE_C_COMPILER="$CC" \
-      -DCMAKE_CXX_COMPILER="$CXX" \
-      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
-      -DENABLE_SHARED=OFF -DENABLE_STATIC=ON
-cmake --build build --parallel "$(nproc)"
-cmake --install build
-cd ..
-
-#####################################
-# freetype2 from git (via autogen)
-#####################################
-git clone --depth=1 https://git.savannah.gnu.org/git/freetype/freetype2.git freetype2
-cd freetype2
-
-mkdir build && cd build
-cmake \
   -DCMAKE_SYSTEM_NAME=Windows \
   -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
   -DCMAKE_C_COMPILER="$CC" \
   -DCMAKE_CXX_COMPILER="$CXX" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
-  -DBUILD_SHARED_LIBS=OFF \
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-  ..
-cmake --build . --parallel "$(nproc)" && cmake --install .
-cd ../..
+  -DENABLE_SHARED=OFF -DENABLE_STATIC=ON
+cmake --build build --parallel "$(nproc)"
+cmake --install build
+cd ..
 
 #####################################
-# libgnutls from git (via autotools)
+# 4) freetype2 (release autotools)
 #####################################
+wget -q https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.xz
+tar xf freetype-2.14.1.tar.xz
+cd freetype-2.14.1
+./configure \
+  --host="$TOOLCHAIN" \
+  --prefix="$PREFIX_DEPS" \
+  --disable-shared --enable-static \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
+make -j"$(nproc)" && make install
+cd ..
 
+#####################################
+# 5) libgnutls from git (autotools)
+#####################################
 git clone --depth=1 https://gitlab.com/gnutls/gnutls.git gnutls
 cd gnutls
-
-# init submodules (nettle, libtasn1, gnulib, etc.)
 git submodule update --init --recursive
 
-# generate Autotools files (no args)
 ./bootstrap
 
-# configure
 ./configure \
-  --host="${TOOLCHAIN}" \
-  --prefix="${PREFIX_DEPS}" \
+  --host="$TOOLCHAIN" \
+  --prefix="$PREFIX_DEPS" \
   --disable-shared \
   --enable-static \
   --with-included-unistring \
   --with-included-tasn1 \
   --with-included-nettle \
-  CPPFLAGS="-I${PREFIX_DEPS}/include" \
-  LDFLAGS="-L${PREFIX_DEPS}/lib"
-
-# build & install
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
 make -j"$(nproc)" && make install
-
 cd ..
 
 #####################################
-# Extended deps
+# 6) fontconfig
 #####################################
-
-# fontconfig
 git clone --depth=1 https://gitlab.freedesktop.org/fontconfig/fontconfig.git fontconfig
 cd fontconfig
 autoreconf -fi
-./configure --host="$TOOLCHAIN" --prefix="$PREFIX_DEPS" \
-  CPPFLAGS="-I$PREFIX_DEPS/include" LDFLAGS="-L$PREFIX_DEPS/lib"
+./configure \
+  --host="$TOOLCHAIN" \
+  --prefix="$PREFIX_DEPS" \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
 make -j"$(nproc)" && make install
 cd ..
 
-# harfbuzz (meson)
+#####################################
+# 7) harfbuzz
+#####################################
 git clone --depth=1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
 cd harfbuzz
 cat > cross.ini << 'EOF'
@@ -162,6 +148,7 @@ cxx = '${CXX}'
 ar = '${AR}'
 ranlib = '${RANLIB}'
 pkgconfig = 'pkg-config'
+
 [host_machine]
 system = 'windows'
 cpu_family = 'aarch64'
@@ -174,7 +161,9 @@ meson setup build --cross-file=cross.ini \
 ninja -C build install
 cd ..
 
-# libxml2
+#####################################
+# 8) libxml2
+#####################################
 git clone --depth=1 https://gitlab.gnome.org/GNOME/libxml2.git libxml2
 cd libxml2
 mkdir -p build && cd build
@@ -194,7 +183,9 @@ cmake -DCMAKE_TOOLCHAIN_FILE="../xml.toolchain.cmake" \
 cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
-# SDL2
+#####################################
+# 9) SDL2
+#####################################
 git clone --depth=1 https://github.com/libsdl-org/SDL.git SDL2
 cd SDL2
 mkdir -p build && cd build
@@ -207,54 +198,62 @@ cmake -DCMAKE_SYSTEM_NAME=Windows \
 cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
-# libusb
+#####################################
+# 10) libusb
+#####################################
 git clone --depth=1 https://github.com/libusb/libusb.git libusb
 cd libusb
 mkdir -p build && cd build
 cmake -DCMAKE_SYSTEM_NAME=Windows \
       -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
       -DCMAKE_C_COMPILER="$CC" \
       -DCMAKE_CXX_COMPILER="$CXX" \
-      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
       -DENABLE_SHARED=OFF -DENABLE_STATIC=ON ..
 cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
-# libtiff
+#####################################
+# 11) libtiff
+#####################################
 git clone --depth=1 https://gitlab.com/libtiff/libtiff.git libtiff
 cd libtiff
 mkdir -p build && cd build
 cmake -DCMAKE_SYSTEM_NAME=Windows \
       -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
       -DCMAKE_C_COMPILER="$CC" \
       -DCMAKE_CXX_COMPILER="$CXX" \
-      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
       -DBUILD_SHARED_LIBS=OFF ..
 cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
-# lcms2
+#####################################
+# 12) lcms2
+#####################################
 git clone --depth=1 https://github.com/mm2/Little-CMS.git lcms2
 cd lcms2
 mkdir -p build && cd build
 cmake -DCMAKE_SYSTEM_NAME=Windows \
       -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
       -DCMAKE_C_COMPILER="$CC" \
       -DCMAKE_CXX_COMPILER="$CXX" \
-      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
       -DBUILD_SHARED_LIBS=OFF ..
 cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
-# libgphoto2
+#####################################
+# 13) libgphoto2
+#####################################
 git clone --depth=1 https://github.com/gphoto/libgphoto2.git libgphoto2
 cd libgphoto2
 mkdir -p build && cd build
 cmake -DCMAKE_SYSTEM_NAME=Windows \
       -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
       -DCMAKE_C_COMPILER="$CC" \
       -DCMAKE_CXX_COMPILER="$CXX" \
-      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
       -DENABLE_SHARED=OFF -DENABLE_STATIC=ON ..
 cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
