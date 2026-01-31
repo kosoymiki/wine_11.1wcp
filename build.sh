@@ -196,6 +196,7 @@ cd gnutls-3.8.0
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
   --disable-shared \
+  --disable‑hardware‑acceleration \
   --enable-static \
   --with-included-unistring \
   --with-included-libtasn1 \
