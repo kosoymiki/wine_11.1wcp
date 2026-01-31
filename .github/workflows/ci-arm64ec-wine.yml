@@ -95,65 +95,71 @@ jobs:
 
           cd wine
 
+          # Подготовка каталогов для логов/отклоненных/диффов
           mkdir -p rejects logs diffs
 
           echo "==> Applying wine‑tkg patches with diagnostics" | tee apply-patch.log
 
-          # List of categories in preferred order
-          PATCH_CATEGORIES=(
-            "general"
-            "hotfixes"
-            "misc"
-            "proton"
-            "community-patches"
-            "esync-fsync"
-          )
-
+          # Абсолютный базовый путь к TKG патчам
           BASE_TKG="../wine-tkg/wine-tkg-git/wine-tkg-patches"
 
-          # Track which patches are applied successfully
+          # Вручную добавляем очередность основных патч‑категорий
+          PATCH_ROOTS=(
+            "${BASE_TKG}/mainline"
+            "${BASE_TKG}/staging"
+            "${BASE_TKG}/hotfixes"
+            "${BASE_TKG}/misc"
+            "${BASE_TKG}/proton"
+            "${BASE_TKG}/community-patches"
+          )
+
+          # Список патчей, которые действительно применились
           > applied-patches.list
 
-          for category in "${PATCH_CATEGORIES[@]}"; do
-            echo "--- CATEGORY: $category" | tee -a apply-patch.log
-            PATCH_DIR="${BASE_TKG}/${category}"
+          # Проходим по каждой основной категории
+          for root in "${PATCH_ROOTS[@]}"; do
+            if [ -d "$root" ]; then
+              echo "--- CATEGORY ROOT: $root" | tee -a apply-patch.log
 
-            if [ -d "$PATCH_DIR" ]; then
-              for patchfile in "$PATCH_DIR"/*.patch; do
-                if [ -f "$patchfile" ]; then
-                  echo "Processing patch: $patchfile" | tee -a apply-patch.log
-
-                  # Take diff before applying
-                  git diff > before.diff || true
-
-                  # Attempt to apply patch capturing output
-                  patch -p1 --forward < "$patchfile" > "logs/$(basename "$patchfile").out" 2>&1 || true
-
-                  # Check if any reject hunks exist
-                  if grep -q -E "Hunk FAILED|fail" "logs/$(basename "$patchfile").out"; then
-                    echo "❗ Failed or conflict in: $patchfile" | tee -a apply-patch.log
-                    # Move rejects into rejects/
-                    if ls *.rej 1> /dev/null 2>&1; then
-                      mv *.rej "rejects/$(basename "$patchfile").rej" || true
-                      echo "Saved reject hunks for $(basename "$patchfile")" | tee -a apply-patch.log
-                    fi
-                  else
-                    # Successful application
-                    echo "✅ Applied: $patchfile" | tee -a apply-patch.log
-                    echo "$patchfile" >> applied-patches.list
-
-                    # Produce diff of changes
-                    git diff > "diffs/$(basename "$patchfile").diff" || true
-                    echo "Saved diff for $(basename "$patchfile")" | tee -a apply-patch.log
-                  fi
+              # Проходим рекурсивно по всем *.patch в подкаталогах
+              find "$root" -type f -name "*.patch" | sort | while read -r patchfile; do
+                # Пропускаем .conf — лишь патчи мы применяем
+                if [[ ! "$patchfile" =~ \.patch$ ]]; then
+                  continue
                 fi
+
+                echo "Processing patch: $patchfile" | tee -a apply-patch.log
+
+                # Снимем diff до применения
+                git diff > before.diff || true
+
+                # Попытка применить патч
+                patch -p1 --forward < "$patchfile" > "logs/$(basename "$patchfile").out" 2>&1 || true
+
+                # Проверка результата
+                if grep -q -E "Hunk FAILED|fail" "logs/$(basename "$patchfile").out"; then
+                  echo "❗ Conflict/Fail in: $patchfile" | tee -a apply-patch.log
+                  # Сохраняем reject hunks
+                  if ls *.rej 1> /dev/null 2>&1; then
+                    mv *.rej "rejects/$(basename "$patchfile").rej" || true
+                    echo "Saved rejects for $(basename "$patchfile")" | tee -a apply-patch.log
+                  fi
+                else
+                  echo "✅ Applied: $patchfile" | tee -a apply-patch.log
+                  echo "$patchfile" >> applied-patches.list
+
+                  # Снимаем diff после применения
+                  git diff > "diffs/$(basename "$patchfile").diff" || true
+                  echo "Saved diff for $(basename "$patchfile")" | tee -a apply-patch.log
+                fi
+
               done
             else
-              echo "Skipping missing category: $category" | tee -a apply-patch.log
+              echo "Skipping missing category root: $root" | tee -a apply-patch.log
             fi
           done
 
-          echo "==> Patch application finished" | tee -a apply-patch.log
+          echo "==> Finished wine‑tkg patch application" | tee -a apply-patch.log
           cd ..
 
       ###################################################
