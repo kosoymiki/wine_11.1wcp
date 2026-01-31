@@ -110,16 +110,35 @@ cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
 #####################################
-# gnutls
+# libgnutls from git (via autotools)
 #####################################
+
 git clone --depth=1 https://gitlab.com/gnutls/gnutls.git gnutls
 cd gnutls
-./bootstrap.sh
-./configure --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static --disable-doc \
-  CPPFLAGS="-I$PREFIX_DEPS/include" \
-  LDFLAGS="-L$PREFIX_DEPS/lib"
+
+# init submodules (nettle, libtasn1, unistring и др.)
+git submodule update --init --recursive
+
+# generate autotools files
+./bootstrap \
+  --disable-doc \
+  --disable-tests \
+  --only-tools
+
+# configure build
+./configure \
+  --host="${TOOLCHAIN}" \
+  --prefix="${PREFIX_DEPS}" \
+  --disable-shared \
+  --enable-static \
+  --with-included-unistring \
+  --with-included-tasn1 \
+  --with-included-libtasn1 \
+  --with-included-nettle \
+  CPPFLAGS="-I${PREFIX_DEPS}/include" \
+  LDFLAGS="-L${PREFIX_DEPS}/lib"
+
+# build & install
 make -j"$(nproc)" && make install
 cd ..
 
