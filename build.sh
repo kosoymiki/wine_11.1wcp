@@ -6,7 +6,7 @@ set -euxo pipefail
 ####################################
 if command -v apt &>/dev/null && command -v sudo &>/dev/null; then
   sudo apt update
-  sudo apt install -y --no-install-recommends \
+sudo apt install -y --no-install-recommends \
   build-essential autoconf automake libtool gettext gperf \
   flex bison ninja-build cmake meson pkg-config \
   python3 python3-pip git wget unzip \
