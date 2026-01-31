@@ -188,14 +188,21 @@ cd ..
 ####################################
 # 11) fontconfig
 ####################################
-git clone --depth=1 https://gitlab.freedesktop.org/fontconfig/fontconfig.git fontconfig
-cd fontconfig
-autoreconf -fi
+echo ">>> Build fontconfig 2.16.0"
+wget -q https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.0.tar.xz
+tar xf fontconfig-2.16.0.tar.xz
+cd fontconfig-2.16.0
+
 ./configure \
   --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS"
+  --prefix="$PREFIX_DEPS" \
+  --disable-shared --enable-static \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
+
 make -j"$(nproc)" && make install
 cd ..
+
 
 ####################################
 # 12) harfbuzz
