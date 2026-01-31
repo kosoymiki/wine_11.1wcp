@@ -44,6 +44,14 @@ export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 export CFLAGS="-I$PREFIX_DEPS/include${CFLAGS+: }${CFLAGS:-}"
 export LDFLAGS="-L$PREFIX_DEPS/lib${LDFLAGS+: }${LDFLAGS:-}"
 
+
+#####################################
+# Configure pkgconfig for MinGW‑w64
+#####################################
+echo ">>> Setup pkgconfig for aarch64‑w64‑mingw32"
+export PKG_CONFIG_PATH="/usr/aarch64-w64-mingw32/lib/pkgconfig:/usr/share/aarch64-w64-mingw32/pkgconfig:$PKG_CONFIG_PATH"
+echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+
 #####################################
 # 1) zlib
 #####################################
