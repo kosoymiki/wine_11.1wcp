@@ -101,16 +101,6 @@ cd zlib
 make -j"$(nproc)" && make install
 cd ..
 
-wget -q https://github.com/libexpat/libexpat/releases/download/R_2_7_4/expat-2.7.4.tar.xz
-tar xf expat-2.7.4.tar.xz
-cd expat-2.7.4
-
-./configure \
-  --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static \
-  CPPFLAGS="-I$PREFIX_DEPS/include" \
-  LDFLAGS="-L$PREFIX_DEPS/lib"
 
 make -j"$(nproc)" && make install
 cd ..
@@ -143,6 +133,17 @@ cd ..
 build_autotools_dep \
   https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.xz \
   freetype-2.14.1
+
+wget -q https://github.com/libexpat/libexpat/releases/download/R_2_7_4/expat-2.7.4.tar.xz
+tar xf expat-2.7.4.tar.xz
+cd expat-2.7.4
+
+./configure \
+  --host="$TOOLCHAIN" \
+  --prefix="$PREFIX_DEPS" \
+  --disable-shared --enable-static \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
 
 ####################################
 # 5) GMP
@@ -206,12 +207,18 @@ wget -q https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.
 tar xf fontconfig-2.16.0.tar.xz
 cd fontconfig-2.16.0
 
+# Указываем include путей, особенно freetype2
+export CPPFLAGS="-I$PREFIX_DEPS/include/freetype2 -I$PREFIX_DEPS/include"
+export LDFLAGS="-L$PREFIX_DEPS/lib"
+
 ./configure \
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static \
-  CPPFLAGS="-I$PREFIX_DEPS/include" \
-  LDFLAGS="-L$PREFIX_DEPS/lib"
+  --with-expat=yes \
+  --with-freetype=yes \
+  CPPFLAGS="$CPPFLAGS" \
+  LDFLAGS="$LDFLAGS"
 
 make -j"$(nproc)" && make install
 cd ..
