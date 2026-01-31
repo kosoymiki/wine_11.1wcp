@@ -183,21 +183,25 @@ cd libev-4.33
 make -j"$(nproc)" && make install
 cd ..
 
-####################################
-# 10) GnuTLS
-####################################
-git clone --depth=1 https://gitlab.com/gnutls/gnutls.git gnutls
-cd gnutls
-git submodule update --init --recursive
-./bootstrap
+#####################################
+# 9) GnuTLS (release build)
+#####################################
+echo ">>> Build GnuTLS 3.8.0 from release tarball"
+
+wget -q https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.0.tar.xz
+tar xf gnutls-3.8.0.tar.xz
+cd gnutls-3.8.0
+
 ./configure \
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static \
+  --disable-shared \
+  --enable-static \
   --with-included-unistring \
   --with-included-libtasn1 \
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
+
 make -j"$(nproc)" && make install
 cd ..
 
