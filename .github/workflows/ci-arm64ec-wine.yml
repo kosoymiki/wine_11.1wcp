@@ -1,4 +1,4 @@
-name: Build Wine 11.1 Staging-TkG ARM64EC + Winlator .wcp
+name: Build Wine 11.1 Staging‑TkG ARM64EC + Winlator .wcp
 
 on:
   push:
@@ -17,387 +17,375 @@ jobs:
 
     steps:
 
-      ###################################################
-      # 1) Checkout source
-      ###################################################
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      ###################################################
-      # 2) Install build dependencies
-      ###################################################
-      - name: Install build dependencies
-        run: |
-          set -euxo pipefail
+    - name: Install build dependencies
+      run: |
+        set -euxo pipefail
+        sudo apt update
+        sudo apt install -y --no-install-recommends \
+          build-essential autoconf automake libtool pkg-config \
+          python3 python3-pip git gettext flex bison \
+          ninja-build cmake meson \
+          libasound2-dev libpulse-dev libv4l-dev \
+          libx11-dev libxext-dev libxfixes-dev libxinerama-dev \
+          libxi-dev libxrandr-dev libxrender-dev \
+          libfontconfig-dev \
+          libgnutls28-dev libdbus-1-dev libsdl2-dev \
+          libjpeg-dev libpng-dev libxml2-dev \
+          libudev-dev libusb-1.0-0-dev libldap2-dev \
+          libxkbcommon-dev libxv-dev libxxf86vm-dev \
+          libxcursor-dev libxss-dev \
+          libvulkan-dev lld llvm clang \
+          python3-setuptools python3-wheel
+        sudo apt clean
 
-          sudo apt update
-          sudo apt install -y --no-install-recommends \
-            build-essential autoconf automake libtool pkg-config \
-            python3 python3-pip git gettext flex bison \
-            ninja-build cmake meson \
-            libasound2-dev libpulse-dev libv4l-dev \
-            libx11-dev libxext-dev libxfixes-dev libxinerama-dev \
-            libxi-dev libxrandr-dev libxrender-dev \
-            libfontconfig-dev \
-            libgnutls28-dev libdbus-1-dev libsdl2-dev \
-            libjpeg-dev libpng-dev libxml2-dev \
-            libudev-dev libusb-1.0-0-dev libldap2-dev \
-            libxkbcommon-dev libxv-dev libxxf86vm-dev \
-            libxcursor-dev libxss-dev \
-            libvulkan-dev lld llvm clang \
-            python3-setuptools python3-wheel
-          sudo apt clean
+    - name: Setup llvm-mingw toolchain
+      run: |
+        set -euxo pipefail
+        TOOLCHAIN_VER="20260127"
+        FILE="llvm-mingw-${TOOLCHAIN_VER}-ucrt-ubuntu-22.04-aarch64.tar.xz"
+        wget -q "https://github.com/mstorsjo/llvm-mingw/releases/download/${TOOLCHAIN_VER}/${FILE}"
+        mkdir llvm-mingw
+        tar -xJf "$FILE" -C llvm-mingw --strip-components=1
+        echo "$PWD/llvm-mingw/bin" >> "$GITHUB_PATH"
 
-      - name: Cross‑compile core dependencies
-        shell: bash
-        run: |
-          set -euxo pipefail
+    - name: Verify cross‑compiler
+      run: |
+        set -euxo pipefail
+        aarch64-w64-mingw32-clang --version
+        echo 'int main(void){return 0;}' > /tmp/test.c
+        aarch64-w64-mingw32-clang /tmp/test.c -o /tmp/test.exe
 
-          # Стандартные пути для deps
-          PREFIX_DEPS="$PWD/deps/install"
-          mkdir -p "$PREFIX_DEPS"/{lib/pkgconfig,include,bin}
-          mkdir -p deps/build
-          cd deps/build
+    - name: Cross‑compile core deps
+      run: |
+        set -euxo pipefail
+        PREFIX_DEPS="$PWD/deps/install"
+        mkdir -p "$PREFIX_DEPS"/{lib/pkgconfig,include,bin}
+        mkdir -p deps/build
+        cd deps/build
 
-          # Cross toolchain
-          export TOOLCHAIN=aarch64-w64-mingw32
-          export CC=${TOOLCHAIN}-clang
-          export CXX=${TOOLCHAIN}-clang++
-          export AR=${TOOLCHAIN}-ar
-          export RANLIB=${TOOLCHAIN}-ranlib
-          export WINDRES=${TOOLCHAIN}-windres
+        export TOOLCHAIN=aarch64-w64-mingw32
+        export CC=${TOOLCHAIN}-clang
+        export CXX=${TOOLCHAIN}-clang++
+        export AR=${TOOLCHAIN}-ar
+        export RANLIB=${TOOLCHAIN}-ranlib
+        export WINDRES=${TOOLCHAIN}-windres
 
-          export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig"
-          export CFLAGS="-I$PREFIX_DEPS/include"
-          export LDFLAGS="-L$PREFIX_DEPS/lib"
+        export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig:$PKG_CONFIG_PATH"
+        export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
+        export CFLAGS="-I$PREFIX_DEPS/include $CFLAGS"
+        export LDFLAGS="-L$PREFIX_DEPS/lib $LDFLAGS"
 
-          ###################################################
-          # 1) zlib
-          ###################################################
-          git clone --depth=1 https://github.com/madler/zlib.git zlib
-          cd zlib
-          ./configure --prefix="$PREFIX_DEPS" --static
-          make -j"$(nproc)" && make install
-          cd ..
+        git clone --depth=1 https://github.com/madler/zlib.git zlib
+        cd zlib
+        ./configure --prefix="$PREFIX_DEPS" --static
+        make -j"$(nproc)" && make install
+        cd ..
 
-          ###################################################
-          # 2) libpng
-          ###################################################
-          git clone --depth=1 https://github.com/glennrp/libpng.git libpng
-          cd libpng
-          ./configure \
-          --host="$TOOLCHAIN" \
-          --prefix="$PREFIX_DEPS" \
+        git clone --depth=1 https://github.com/glennrp/libpng.git libpng
+        cd libpng
+        ./configure --host="$TOOLCHAIN" \
+          --prefix="$PREFIX_DEPS" --disable-shared --enable-static \
+          CPPFLAGS="-I$PREFIX_DEPS/include" LDFLAGS="-L$PREFIX_DEPS/lib"
+        make -j"$(nproc)" && make install
+        cd ..
+
+        git clone --depth=1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg
+        cd libjpeg
+        cmake -S . -B build \
+          -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+          -DCMAKE_C_COMPILER="$CC" \
+          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
+          -DENABLE_SHARED=OFF -DENABLE_STATIC=ON
+        cmake --build build --parallel "$(nproc)"
+        cmake --install build
+        cd ..
+
+        git clone --depth=1 https://git.savannah.gnu.org/git/freetype/freetype2.git freetype2
+        cd freetype2
+        mkdir -p build && cd build
+        ../configure --host="$TOOLCHAIN" --prefix="$PREFIX_DEPS" \
           --disable-shared --enable-static \
-          CPPFLAGS="-I$PREFIX_DEPS/include" \
-          LDFLAGS="-L$PREFIX_DEPS/lib"
-          make -j"$(nproc)" && make install
-          cd ..
+          CPPFLAGS="-I$PREFIX_DEPS/include" LDFLAGS="-L$PREFIX_DEPS/lib"
+        make -j"$(nproc)" && make install
+        cd ../..
 
-          ###################################################
-          # 3) libjpeg‑turbo
-          ###################################################
-          git clone --depth=1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg
-          cd libjpeg
-          cmake -S . -B build \
-                -DCMAKE_SYSTEM_NAME=Windows \
-                -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
-                -DCMAKE_C_COMPILER="$CC" \
-                -DCMAKE_CXX_COMPILER="$CXX" \
-                -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
-                -DENABLE_SHARED=OFF \
-                -DENABLE_STATIC=ON
-          cmake --build build --parallel "$(nproc)" && cmake --install build
-          cd ..
+        git clone --depth=1 https://gitlab.com/gnutls/gnutls.git gnutls
+        cd gnutls
+        ./bootstrap.sh
+        ./configure --host="$TOOLCHAIN" --prefix="$PREFIX_DEPS" \
+          --disable-shared --enable-static --disable-doc \
+          CPPFLAGS="-I$PREFIX_DEPS/include" LDFLAGS="-L$PREFIX_DEPS/lib"
+        make -j"$(nproc)" && make install
+        cd ..
 
-          ###################################################
-          # 4) freetype2
-          ###################################################
-          git clone --depth=1 https://git.savannah.gnu.org/git/freetype/freetype2.git freetype2
-          cd freetype2
-          mkdir -p build && cd build
-          ../configure \
-          --host="$TOOLCHAIN" \
-          --prefix="$PREFIX_DEPS" \
-          --disable-shared --enable-static \
-          CPPFLAGS="-I$PREFIX_DEPS/include" \
-          LDFLAGS="-L$PREFIX_DEPS/lib"
-          make -j"$(nproc)" && make install
-          cd ../../
+    - name: Cross‑compile optional deps
+      run: |
+        set -euxo pipefail
+        cd deps/build
 
-          ###################################################
-          # 5) libgnutls
-          ###################################################
-          git clone --depth=1 https://gitlab.com/gnutls/gnutls.git gnutls
-          cd gnutls
-          ./bootstrap.sh
-          ./configure \
-            --host="$TOOLCHAIN" \
-            --prefix="$PREFIX_DEPS" \
-            --disable-shared \
-            --enable-static \
-            --disable-doc \
-           CPPFLAGS="-I$PREFIX_DEPS/include" \
-           LDFLAGS="-L$PREFIX_DEPS/lib"
-          make -j"$(nproc)" && make install
-          cd ..
+        git clone --depth=1 https://gitlab.freedesktop.org/fontconfig/fontconfig.git fontconfig
+        cd fontconfig
+        autoreconf -fi
+        ./configure --host="$TOOLCHAIN" --prefix="$PREFIX_DEPS" \
+          CPPFLAGS="-I$PREFIX_DEPS/include" LDFLAGS="-L$PREFIX_DEPS/lib"
+        make -j"$(nproc)" && make install
+        cd ..
 
-          echo "=== Cross‑compile core deps completed ==="
+        git clone --depth=1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
+        cd harfbuzz
 
-      ###################################################
-      # 3) Setup llvm-mingw cross toolchain
-      ###################################################
-      - name: Setup llvm-mingw
-        run: |
-          set -euxo pipefail
+        cat > cross.ini << 'EOF'
+        [binaries]
+        c = '${CC}'
+        cxx = '${CXX}'
+        ar = '${AR}'
+        ranlib = '${RANLIB}'
+        pkgconfig = 'pkg-config'
 
-          TOOLCHAIN_VER="20260127"
-          FILENAME="llvm-mingw-${TOOLCHAIN_VER}-ucrt-ubuntu-22.04-aarch64.tar.xz"
-          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${TOOLCHAIN_VER}/${FILENAME}"
+        [host_machine]
+        system = 'windows'
+        cpu_family = 'aarch64'
+        cpu = 'aarch64'
+        endian = 'little'
+        EOF
 
-          wget -q "$URL"
-          mkdir -p llvm-mingw
-          tar -xJf "$FILENAME" -C llvm-mingw --strip-components=1
-          echo "$PWD/llvm-mingw/bin" >> "$GITHUB_PATH"
+        meson setup build --cross-file=cross.ini \
+          -Dfontconfig=enabled -Dfreetype=enabled \
+          --prefix="$PREFIX_DEPS"
+        ninja -C build install
+        cd ../..
 
-      ###################################################
-      # 4) Clone Wine + staging + tkg patches
-      ###################################################
-      - name: Clone Wine & Patches
-        run: |
-          set -euxo pipefail
-          git clone --depth 1 --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
-          git clone --depth 1 --branch v11.1 https://github.com/wine-staging/wine-staging.git wine-staging
-          git clone https://github.com/Frogging-Family/wine-tkg-git.git wine-tkg
+        git clone --depth=1 https://gitlab.gnome.org/GNOME/libxml2.git libxml2
+        cd libxml2
+        mkdir -p build && cd build
+        cat > cross_file.xml << 'EOF'
+        <toolchain>
+        <c compiler="@CC@" />
+        <cxx compiler="@CXX@" />
+        <ar program="@AR@" />
+        <ranlib program="@RANLIB@" />
+        </toolchain>
+        EOF
+        sed -i "s|@CC@|${CC}|g; s|@CXX@|${CXX}|g; s|@AR@|${AR}|g; s|@RANLIB@|${RANLIB}|g" cross_file.xml
+        cmake -DCMAKE_TOOLCHAIN_FILE=cross_file.xml \
+          -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
+          -DCMAKE_SYSTEM_NAME=Windows \
+          -DLIBXML2_WITH_PIC=ON \
+          -DLIBXML2_BUILD_TESTS=OFF ..
+        cmake --build . --parallel "$(nproc)" && cmake --install .
+        cd ../..
 
-      ###################################################
-      # 5) Apply Wine-Staging patches
-      ###################################################
-      - name: Apply staging patches
-        run: |
-          set -euxo pipefail
-          cd wine
-          python3 ../wine-staging/staging/patchinstall.py --all --destdir="$(pwd)"
-          cd ..
+        git clone --depth=1 https://github.com/libsdl-org/SDL.git SDL2
+        cd SDL2
+        mkdir -p build && cd build
+        cmake -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+          -DCMAKE_C_COMPILER="$CC" \
+          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
+          -DSDL_SHARED=OFF -DSDL_STATIC=ON ..
+        cmake --build . --parallel "$(nproc)" && cmake --install .
+        cd ../..
 
-      ###################################################
-      # 6) Apply wine‑tkg patches (with skip + minimal set + debug diffs)
-      ###################################################
-      - name: Apply wine‑tkg patches (advanced diagnostics)
-        run: |
-          set -euxo pipefail
+        git clone --depth=1 https://github.com/libusb/libusb.git libusb
+        cd libusb
+        mkdir -p build && cd build
+        cmake -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+          -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
+          -DCMAKE_C_COMPILER="$CC" \
+          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DENABLE_SHARED=OFF -DENABLE_STATIC=ON ..
+        cmake --build . --parallel "$(nproc)" && cmake --install .
+        cd ../..
 
-          cd wine
+        git clone --depth=1 https://gitlab.com/libtiff/libtiff.git libtiff
+        cd libtiff
+        mkdir -p build && cd build
+        cmake -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+          -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
+          -DCMAKE_C_COMPILER="$CC" \
+          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DBUILD_SHARED_LIBS=OFF ..
+        cmake --build . --parallel "$(nproc)" && cmake --install .
+        cd ../..
 
-          # Подготовка каталогов для логов/отклоненных/диффов
-          mkdir -p rejects logs diffs
+        git clone --depth=1 https://github.com/mm2/Little-CMS.git lcms2
+        cd lcms2
+        mkdir -p build && cd build
+        cmake -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+          -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
+          -DCMAKE_C_COMPILER="$CC" \
+          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DBUILD_SHARED_LIBS=OFF ..
+        cmake --build . --parallel "$(nproc)" && cmake --install .
+        cd ../..
 
-          echo "==> Applying wine‑tkg patches with diagnostics" | tee apply-patch.log
+        git clone --depth=1 https://github.com/gphoto/libgphoto2.git libgphoto2
+        cd libgphoto2
+        mkdir -p build && cd build
+        cmake -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+          -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
+          -DCMAKE_C_COMPILER="$CC" \
+          -DCMAKE_CXX_COMPILER="$CXX" \
+          -DENABLE_SHARED=OFF -DENABLE_STATIC=ON ..
+        cmake --build . --parallel "$(nproc)" && cmake --install .
+        cd ../..
 
-          # Абсолютный базовый путь к TKG патчам
-          BASE_TKG="../wine-tkg/wine-tkg-git/wine-tkg-patches"
+    - name: Clone Wine & patches
+      run: |
+        set -euxo pipefail
+        git clone --depth 1 --branch wine-11.1 https://gitlab.winehq.org/wine/wine.git wine
+        git clone --depth 1 --branch v11.1 https://github.com/wine-staging/wine-staging.git wine-staging
+        git clone https://github.com/Frogging-Family/wine-tkg-git.git wine-tkg
 
-          # Вручную добавляем очередность основных патч‑категорий
-          PATCH_ROOTS=(
-            "${BASE_TKG}/mainline"
-            "${BASE_TKG}/staging"
-            "${BASE_TKG}/hotfixes"
-            "${BASE_TKG}/misc"
-            "${BASE_TKG}/proton"
-            "${BASE_TKG}/community-patches"
-          )
+    - name: Apply Wine-Staging patches
+      run: |
+        set -euxo pipefail
+        cd wine
+        python3 ../wine-staging/staging/patchinstall.py --all --destdir="$(pwd)"
+        cd ..
 
-          # Список патчей, которые действительно применились
-          > applied-patches.list
-
-          # Проходим по каждой основной категории
-          for root in "${PATCH_ROOTS[@]}"; do
-            if [ -d "$root" ]; then
-              echo "--- CATEGORY ROOT: $root" | tee -a apply-patch.log
-
-              # Проходим рекурсивно по всем *.patch в подкаталогах
-              find "$root" -type f -name "*.patch" | sort | while read -r patchfile; do
-                # Пропускаем .conf — лишь патчи мы применяем
-                if [[ ! "$patchfile" =~ \.patch$ ]]; then
-                  continue
+    - name: Apply wine-tkg patches
+      run: |
+        set -euxo pipefail
+        cd wine
+        mkdir -p rejects logs diffs
+        > applied-patches.list
+        BASE_TKG="../wine-tkg/wine-tkg-git/wine-tkg-patches"
+        for root in \
+          "${BASE_TKG}/mainline" \
+          "${BASE_TKG}/staging" \
+          "${BASE_TKG}/hotfixes" \
+          "${BASE_TKG}/misc" \
+          "${BASE_TKG}/proton" \
+          "${BASE_TKG}/community-patches"; do
+          if [ -d "$root" ]; then
+            find "$root" -type f -name "*.patch" | sort | while read -r patchfile; do
+              git diff > before.diff || true
+              patch -p1 --forward < "$patchfile" > "logs/$(basename "$patchfile").out" 2>&1 || true
+              if grep -q -E "Hunk FAILED|fail" "logs/$(basename "$patchfile").out"; then
+                if ls *.rej 1> /dev/null 2>&1; then
+                  mv *.rej "rejects/$(basename "$patchfile").rej" || true
                 fi
+              else
+                echo "$patchfile" >> applied-patches.list
+                git diff > "diffs/$(basename "$patchfile").diff" || true
+              fi
+            done
+          fi
+        done
+        cd ..
 
-                echo "Processing patch: $patchfile" | tee -a apply-patch.log
+    - name: Configure & compile Wine
+      run: |
+        set -euxo pipefail
+        cd wine
 
-                # Снимем diff до применения
-                git diff > before.diff || true
+        mkdir wine-tools-build
+        cd wine-tools-build
+        ../configure --enable-tools --disable-tests --disable-win16 --enable-archs=aarch64
+        make -j"$(nproc)"
+        cd ..
 
-                # Попытка применить патч
-                patch -p1 --forward < "$patchfile" > "logs/$(basename "$patchfile").out" 2>&1 || true
+        mkdir build
+        cd build
 
-                # Проверка результата
-                if grep -q -E "Hunk FAILED|fail" "logs/$(basename "$patchfile").out"; then
-                  echo "❗ Conflict/Fail in: $patchfile" | tee -a apply-patch.log
-                  # Сохраняем reject hunks
-                  if ls *.rej 1> /dev/null 2>&1; then
-                    mv *.rej "rejects/$(basename "$patchfile").rej" || true
-                    echo "Saved rejects for $(basename "$patchfile")" | tee -a apply-patch.log
-                  fi
-                else
-                  echo "✅ Applied: $patchfile" | tee -a apply-patch.log
-                  echo "$patchfile" >> applied-patches.list
+        export BUILD=aarch64-linux-gnu
+        export HOST=aarch64-w64-mingw32
+        export CC=aarch64-w64-mingw32-clang
+        export CXX=aarch64-w64-mingw32-clang++
+        export AR=aarch64-w64-mingw32-ar
+        export LD=aarch64-w64-mingw32-lld
+        export WINDRES=aarch64-w64-mingw32-windres
+        export RANLIB=aarch64-w64-mingw32-ranlib
 
-                  # Снимаем diff после применения
-                  git diff > "diffs/$(basename "$patchfile").diff" || true
-                  echo "Saved diff for $(basename "$patchfile")" | tee -a apply-patch.log
-                fi
+        export PKG_CONFIG_PATH="$PWD/../../deps/install/lib/pkgconfig:$PKG_CONFIG_PATH"
+        export PKG_CONFIG_SYSROOT_DIR="$PWD/../../deps/install"
+        export CFLAGS="-I$PWD/../../deps/install/include $CFLAGS"
+        export LDFLAGS="-L$PWD/../../deps/install/lib $LDFLAGS"
 
-              done
-            else
-              echo "Skipping missing category root: $root" | tee -a apply-patch.log
-            fi
-          done
+        ../configure \
+          --build="$BUILD" \
+          --host="$HOST" \
+          --with-mingw=clang \
+          --with-wine-tools="../wine-tools-build" \
+          --prefix=/usr \
+          --enable-win64 \
+          --enable-wow64 \
+          --enable-archs=arm64ec,aarch64 \
+          --disable-tests \
+          --without-mono \
+          --without-gecko \
+          --with-freetype \
+          --with-fontconfig \
+          --with-alsa \
+          --with-pulse \
+          --with-sdl2 \
+          --with-dbus \
+          --with-vulkan \
+          --with-lcms2 \
+          --with-libtiff \
+          --with-libusb
+        make -j"$(nproc)"
 
-          echo "==> Finished wine‑tkg patch application" | tee -a apply-patch.log
-          cd ..
+    - name: Build DXVK
+      run: |
+        set -euxo pipefail
+        git clone https://github.com/doitsujin/dxvk.git dxvk
+        cd dxvk
+        git submodule update --init --recursive
+        pip3 install meson ninja
+        meson setup build --cross-file=../wine/build/config/meson.cross.arm64ec.ini --prefix=/usr -Dbuild_tests=false
+        ninja -C build install
 
-      ###################################################
-      # 7) Build FreeType2 for mingw
-      ###################################################
-      - name: Build FreeType2 for mingw (Windows target)
-        run: |
-          set -euxo pipefail
-          mkdir -p deps/freetype2
-          cd deps/freetype2
-          git clone --depth 1 https://git.savannah.gnu.org/git/freetype/freetype2.git .
-          mkdir build && cd build
+    - name: Build VKD3D‑Proton
+      run: |
+        set -euxo pipefail
+        git clone https://github.com/HansKristian-Work/vkd3d-proton.git vkd3d
+        cd vkd3d
+        git submodule update --init --recursive
+        meson setup build --cross-file=../wine/build/config/meson.cross.arm64ec.ini --prefix=/usr -Dbuild_tests=false
+        ninja -C build install
 
-          export CC=aarch64-w64-mingw32-clang
-          export CXX=aarch64-w64-mingw32-clang++
-          export AR=aarch64-w64-mingw32-ar
-          export RANLIB=aarch64-w64-mingw32-ranlib
-          export WINDRES=aarch64-w64-mingw32-windres
+    - name: Package .wcp
+      run: |
+        set -euxo pipefail
+        cd wine/build
+        DESTDIR=$PWD/install make install
+        cd install
 
-          export PREFIX="$(pwd)/install"
+        mkdir -p wcp/{bin,lib,share}
+        cp -a usr/bin/* wcp/bin/ || true
+        cp -a usr/lib/wine/* wcp/lib/ || true
+        cp -a usr/share/* wcp/share/ || true
+        cd wcp/bin && ln -sf wine64 wine
+        find . -type f -exec chmod +x {} \;
 
-          ../configure \
-            --host=aarch64-w64-mingw32 \
-            --prefix="$PREFIX" \
-            --enable-static \
-            --disable-shared
+        cat > profile.json << 'EOF'
+        {
+          "id":"wine-11.1-staging-tkg-arm64ec",
+          "name":"Wine 11.1 Staging-TkG Arm64EC",
+          "version":"11.1",
+          "arch":"arm64ec",
+          "files":{"bin":"bin/","lib":"lib/","share":"share/"}
+        }
+        EOF
 
-          make -j"$(nproc)"
-          make install
-          cd ../../../
+        tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-tkg-arm64ec.wcp" profile.json wcp
 
-      ###################################################
-      # 8) Configure & Compile Wine
-      ###################################################
-      - name: Configure & Compile Wine
-        run: |
-          set -euxo pipefail
-          cd wine
-
-          mkdir wine-tools-build
-          cd wine-tools-build
-          ../configure \
-            --enable-tools \
-            --disable-tests \
-            --disable-win16 \
-            --enable-archs=aarch64
-          make -j"$(nproc)"
-          cd ..
-
-          mkdir build
-          cd build
-
-          export BUILD=aarch64-linux-gnu
-          export HOST=aarch64-w64-mingw32
-          export CC=aarch64-w64-mingw32-clang
-          export CXX=aarch64-w64-mingw32-clang++
-          export AR=aarch64-w64-mingw32-ar
-          export LD=aarch64-w64-mingw32-lld
-          export RC=aarch64-w64-mingw32-windres
-          export RANLIB=aarch64-w64-mingw32-ranlib
-
-          export CPPFLAGS="-I$PWD/../../deps/freetype2/build/install/include"
-          export LDFLAGS="-L$PWD/../../deps/freetype2/build/install/lib"
-
-          ../configure \
-            --build="$BUILD" \
-            --host="$HOST" \
-            --with-mingw=clang \
-            --with-wine-tools="../wine-tools-build" \
-            --prefix=/usr \
-            --enable-win64 \
-            --enable-wow64 \
-            --enable-archs=arm64ec,aarch64 \
-            --disable-tests \
-            --without-mono \
-            --without-gecko \
-            --with-freetype \
-            --with-fontconfig \
-            --with-alsa \
-            --with-pulse \
-            --with-vulkan
-          make -j"$(nproc)"
-
-      ###################################################
-      # 9) Build DXVK
-      ###################################################
-      - name: Build DXVK
-        run: |
-          set -euxo pipefail
-          git clone https://github.com/doitsujin/dxvk.git dxvk
-          cd dxvk
-          git submodule update --init --recursive
-          pip3 install meson ninja
-          meson setup build --cross-file=../wine/build/config/meson.cross.arm64ec.ini --prefix=/usr -Dbuild_tests=false
-          ninja -C build install
-
-      ###################################################
-      # 10) Build VKD3D-Proton
-      ###################################################
-      - name: Build VKD3D-Proton
-        run: |
-          set -euxo pipefail
-          git clone https://github.com/HansKristian-Work/vkd3d-proton.git vkd3d
-          cd vkd3d
-          git submodule update --init --recursive
-          meson setup build --cross-file=../wine/build/config/meson.cross.arm64ec.ini --prefix=/usr -Dbuild_tests=false
-          ninja -C build install
-
-      ###################################################
-      # 11) Package .wcp
-      ###################################################
-      - name: Package .wcp
-        run: |
-          set -euxo pipefail
-          cd wine/build
-          DESTDIR=$PWD/install make install
-          cd install
-
-          mkdir -p wcp/{bin,lib,share}
-          cp -a usr/bin/* wcp/bin/ || true
-          cp -a usr/lib/wine/* wcp/lib/ || true
-          cp -a usr/share/* wcp/share/ || true
-          cd wcp/bin && ln -sf wine64 wine
-          find . -type f -exec chmod +x {} \;
-
-          cat > profile.json << 'EOF'
-          {
-            "id":"wine-11.1-staging-tkg-arm64ec",
-            "name":"Wine 11.1 Staging-TkG Arm64EC",
-            "version":"11.1",
-            "arch":"arm64ec",
-            "files":{"bin":"bin/","lib":"lib/","share":"share/"}
-          }
-          EOF
-
-          tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-tkg-arm64ec.wcp" profile.json wcp
-
-      ###################################################
-      # 12) Upload artifact
-      ###################################################
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wine-arm64ec-wcp
-          path: wine-11.1-staging-tkg-arm64ec.wcp
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: wine-arm64ec-wcp
+        path: wine-11.1-staging-tkg-arm64ec.wcp
