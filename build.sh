@@ -101,6 +101,31 @@ make -j"$(nproc)" && make install
 cd ..
 
 #####################################
+# Build nettle + hogweed
+#####################################
+
+echo ">>> Cross‑compile nettle (nettle + hogweed)"
+
+git clone --depth=1 https://github.com/gnutls/nettle.git nettle
+cd nettle
+
+# Генерируем autotools для сборки из git
+./bootstrap
+
+# Конфигурируем под кросс‑компилятор
+./configure \
+  --host="$TOOLCHAIN" \
+  --prefix="$PREFIX_DEPS" \
+  --disable-shared --enable-static \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
+
+# Собираем и устанавливаем
+make -j"$(nproc)" && make install
+
+cd ..
+
+#####################################
 # 5) libgnutls from git (autotools)
 #####################################
 git clone --depth=1 https://gitlab.com/gnutls/gnutls.git gnutls
