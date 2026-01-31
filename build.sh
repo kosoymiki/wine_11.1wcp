@@ -133,11 +133,14 @@ cd ..
 #####################################
 # Build aarch64‑w64‑mingw32 pkgconf/pkg‑config
 #####################################
-echo ">>> Download prebuilt pkgconf release"
-wget -q https://distfiles.ariadne.space/pkgconf/pkgconf-2.5.1.tar.xz
+echo ">>> Download and build cross pkgconf for aarch64-w64-mingw32"
+
+# Download release with configure script
+wget -q https://distfiles.dereferenced.org/pkgconf/pkgconf-2.5.1.tar.xz
 tar -xf pkgconf-2.5.1.tar.xz
 cd pkgconf-2.5.1
 
+# Configure for target with correct prefix
 ./configure \
   --host=aarch64-w64-mingw32 \
   --prefix="$PREFIX_DEPS" \
@@ -146,19 +149,16 @@ cd pkgconf-2.5.1
 make -j"$(nproc)" && make install
 cd ..
 
-# Create symlinks so that aarch64‑w64‑mingw32‑pkg‑config is in PATH
+# Create symlinks so that configure finds pkg-config
 (
   cd "$PREFIX_DEPS/bin"
   ln -sf pkgconf aarch64-w64-mingw32-pkg-config
   ln -sf pkgconf pkg-config
 )
 
-# Export deps prefix bin into PATH so configure sees aarch64‑w64‑mingw32‑pkg‑config
+# Add deps prefix bin into PATH
 echo "$PREFIX_DEPS/bin" >> "$GITHUB_PATH"
 export PATH="$PREFIX_DEPS/bin:$PATH"
-
-echo ">>> pkgconf installed, checking versions:"
-aarch64-w64-mingw32-pkg-config --version || echo "pkgconf version not found"
 
 #####################################
 # libev 4.33 (event loop library)
