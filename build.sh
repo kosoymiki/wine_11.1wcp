@@ -102,6 +102,16 @@ cd freetype-2.14.1
 make -j"$(nproc)" && make install
 cd ..
 
+# Build GMP first
+git clone --depth=1 https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz gmp
+cd gmp
+./configure \
+  --host="$TOOLCHAIN" \
+  --prefix="$PREFIX_DEPS" \
+  --disable-shared --enable-static
+make -j$(nproc) && make install
+cd ..
+
 #####################################
 # Build nettle (release tarball)
 #####################################
