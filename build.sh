@@ -192,6 +192,9 @@ wget -q https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.0.tar.xz
 tar xf gnutls-3.8.0.tar.xz
 cd gnutls-3.8.0
 
+export ac_cv_func_asm_sha1_armv8=no
+export ac_cv_func_asm_aes_armv8=no
+
 ./configure \
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
@@ -200,8 +203,6 @@ cd gnutls-3.8.0
   --with-included-unistring \
   --with-included-libtasn1 \
   --without-p11-kit \
-  ac_cv_func_asm_sha1_armv8=false \
-  ac_cv_func_asm_aes_armv8=false
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
 
