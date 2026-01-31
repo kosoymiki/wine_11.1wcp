@@ -2,15 +2,14 @@
 set -euxo pipefail
 
 ####################################
-# Install system dependencies (Ubuntu)
+# System host deps (Ubuntu)
 ####################################
 if command -v apt &>/dev/null && command -v sudo &>/dev/null; then
   sudo apt update
   sudo apt install -y --no-install-recommends \
-    build-essential autoconf automake libtool pkg-config \
-    gettext gperf gtk-doc-tools autopoint \
-    flex bison ninja-build cmake meson \
-    python3 python3-pip git wget \
+    build-essential autoconf automake libtool gettext gperf \
+    flex bison ninja-build cmake meson pkg-config \
+    python3 python3-pip git wget unzip \
     libasound2-dev libpulse-dev libv4l-dev \
     libx11-dev libxext-dev libxfixes-dev libxinerama-dev \
     libxi-dev libxrandr-dev libxrender-dev \
@@ -20,137 +19,139 @@ if command -v apt &>/dev/null && command -v sudo &>/dev/null; then
     libudev-dev libusb-1.0-0-dev libldap2-dev \
     libxkbcommon-dev libxv-dev libxxf86vm-dev \
     libxcursor-dev libxss-dev \
-    libvulkan-dev \
-    # Mingw-w64 cross compilation helpers
-    gcc-aarch64-w64-mingw32 g++-aarch64-w64-mingw32 \
-    binutils-aarch64-w64-mingw32 \
-    pkg-config
+    libvulkan-dev llvm clang lld
 fi
 
-#####################################
+####################################
 # Prepare prefix & environment
-#####################################
+####################################
 PREFIX_DEPS="${PWD}/deps/install"
 mkdir -p "$PREFIX_DEPS"/{bin,include,lib/pkgconfig}
 mkdir -p deps/build
 cd deps/build
 
-#####################################
-# Set cross product variables
-#####################################
-export TOOLCHAIN=aarch64-w64-mingw32
+####################################
+# Build cross pkgconf (pkg-config for target)
+####################################
+echo ">>> Build cross pkgconf"
+wget -q https://distfiles.dereferenced.org/pkgconf/pkgconf-2.5.1.tar.xz
+tar xf pkgconf-2.5.1.tar.xz
+cd pkgconf-2.5.1
 
-# Use LLVM‑mingw clang for Wine later, but for deps we rely on Mingw‑w64 GCC
-# So we do not export CC/CXX to clang here (let configure pick aarch64‑w64‑mingw32‑gcc)
-export CC=aarch64-w64-mingw32-gcc
-export CXX=aarch64-w64-mingw32-g++
-export AR=aarch64-w64-mingw32-ar
-export RANLIB=aarch64-w64-mingw32-ranlib
-export WINDRES=aarch64-w64-mingw32-windres
+./configure \
+  --host=aarch64-w64-mingw32 \
+  --prefix="$PREFIX_DEPS" \
+  --disable-shared --enable-static
+make -j"$(nproc)" && make install
+cd ..
 
-# Add mingw pkg-config to search path
-export PKG_CONFIG_PATH="/usr/aarch64-w64-mingw32/lib/pkgconfig:/usr/share/aarch64-w64-mingw32/pkgconfig${PKG_CONFIG_PATH+:}${PKG_CONFIG_PATH:-}"
+# Create target pkg-config
+(
+  cd "$PREFIX_DEPS/bin"
+  ln -sf pkgconf aarch64-w64-mingw32-pkg-config
+  ln -sf pkgconf pkg-config
+)
+
+export PATH="$PREFIX_DEPS/bin:$PATH"
+export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig${PKG_CONFIG_PATH+:}${PKG_CONFIG_PATH:-}"
 export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 
-# Ensure deps headers/libs are findable
+####################################
+# Compiler / toolchain
+####################################
+export TOOLCHAIN=aarch64-w64-mingw32
+
+export CC="${TOOLCHAIN}-clang"
+export CXX="${TOOLCHAIN}-clang++"
+export AR="${TOOLCHAIN}-ar"
+export RANLIB="${TOOLCHAIN}-ranlib"
+export WINDRES="${TOOLCHAIN}-windres"
+
 export CFLAGS="-I$PREFIX_DEPS/include${CFLAGS+: }${CFLAGS:-}"
 export LDFLAGS="-L$PREFIX_DEPS/lib${LDFLAGS+: }${LDFLAGS:-}"
 
-#####################################
+####################################
+# Helper: build autotools deps
+####################################
+build_autotools_dep() {
+  local url="$1"
+  local name="$2"
+  wget -q "$url"
+  tar xf "${url##*/}"
+  cd "$name"
+  ./configure \
+    --host="$TOOLCHAIN" \
+    --prefix="$PREFIX_DEPS" \
+    --disable-shared --enable-static \
+    CPPFLAGS="-I$PREFIX_DEPS/include" \
+    LDFLAGS="-L$PREFIX_DEPS/lib"
+  make -j"$(nproc)" && make install
+  cd ..
+}
+
+####################################
 # 1) zlib
-#####################################
+####################################
 git clone --depth=1 https://github.com/madler/zlib.git zlib
 cd zlib
 ./configure --host="$TOOLCHAIN" --prefix="$PREFIX_DEPS" --static
 make -j"$(nproc)" && make install
 cd ..
 
-#####################################
+####################################
 # 2) libpng
-#####################################
-wget -q https://download.sourceforge.net/libpng/libpng-1.6.40.tar.xz
-tar xf libpng-1.6.40.tar.xz
-cd libpng-1.6.40
-./configure \
-  --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static
-make -j"$(nproc)" && make install
-cd ..
+####################################
+build_autotools_dep \
+  https://download.sourceforge.net/libpng/libpng-1.6.40.tar.xz \
+  libpng-1.6.40
 
-#####################################
+####################################
 # 3) libjpeg
-#####################################
+####################################
 git clone --depth=1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg
 cd libjpeg
 cmake -S . -B build \
-  -DCMAKE_SYSTEM_NAME=Windows \
-  -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
-  -DCMAKE_C_COMPILER="$CC" \
-  -DCMAKE_CXX_COMPILER="$CXX" \
-  -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
-  -DENABLE_SHARED=OFF -DENABLE_STATIC=ON
+      -DCMAKE_SYSTEM_NAME=Windows \
+      -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+      -DCMAKE_C_COMPILER="$CC" \
+      -DCMAKE_CXX_COMPILER="$CXX" \
+      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
+      -DENABLE_SHARED=OFF -DENABLE_STATIC=ON
 cmake --build build --parallel "$(nproc)"
 cmake --install build
 cd ..
 
-#####################################
+####################################
 # 4) freetype2
-#####################################
-wget -q https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.xz
-tar xf freetype-2.14.1.tar.xz
-cd freetype-2.14.1
-./configure \
-  --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static \
-  --without-brotli
-make -j"$(nproc)" && make install
-cd ..
+####################################
+build_autotools_dep \
+  https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.xz \
+  freetype-2.14.1
 
-#####################################
-# 5) GMP (needed for nettle)
-#####################################
-wget -q https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
-tar xf gmp-6.3.0.tar.xz
-cd gmp-6.3.0
-./configure \
-  --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static --enable-cxx
-make -j"$(nproc)" && make install
-cd ..
+####################################
+# 5) GMP
+####################################
+build_autotools_dep \
+  https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz \
+  gmp-6.3.0
 
-#####################################
+####################################
 # 6) nettle + hogweed
-#####################################
-wget -q https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz
-tar xf nettle-3.10.2.tar.gz
-cd nettle-3.10.2
-./configure \
-  --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static \
-  --with-gmp
-make -j"$(nproc)" && make install
-cd ..
+####################################
+build_autotools_dep \
+  https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz \
+  nettle-3.10.2
 
-#####################################
+####################################
 # 7) libtasn1
-#####################################
-wget -q https://ftp.gnu.org/gnu/libtasn1/libtasn1-4.21.0.tar.gz
-tar xf libtasn1-4.21.0.tar.gz
-cd libtasn1-4.21.0
-./configure \
-  --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static
-make -j"$(nproc)" && make install
-cd ..
+####################################
+build_autotools_dep \
+  https://ftp.gnu.org/gnu/libtasn1/libtasn1-4.21.0.tar.gz \
+  libtasn1-4.21.0
 
-#####################################
+####################################
 # 8) libunistring
-#####################################
+####################################
 wget -q https://ftp.gnu.org/gnu/libunistring/libunistring-1.1.tar.xz
 tar xf libunistring-1.1.tar.xz
 cd libunistring-1.1
@@ -158,13 +159,31 @@ cd libunistring-1.1
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static \
-  --disable-tests
+  --disable-tests \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
 make -j"$(nproc)" && make install
 cd ..
 
-#####################################
-# 9) GnuTLS
-#####################################
+####################################
+# 9) libev 4.33
+####################################
+echo ">>> Build libev 4.33"
+wget -q https://dist.schmorp.de/libev/libev-4.33.tar.gz
+tar xf libev-4.33.tar.gz
+cd libev-4.33
+./configure \
+  --host="$TOOLCHAIN" \
+  --prefix="$PREFIX_DEPS" \
+  --disable-shared --enable-static \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
+make -j"$(nproc)" && make install
+cd ..
+
+####################################
+# 10) GnuTLS
+####################################
 git clone --depth=1 https://gitlab.com/gnutls/gnutls.git gnutls
 cd gnutls
 git submodule update --init --recursive
@@ -174,13 +193,15 @@ git submodule update --init --recursive
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static \
   --with-included-unistring \
-  --with-included-libtasn1
+  --with-included-libtasn1 \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
 make -j"$(nproc)" && make install
 cd ..
 
-#####################################
-# 10) fontconfig
-#####################################
+####################################
+# 11) fontconfig
+####################################
 git clone --depth=1 https://gitlab.freedesktop.org/fontconfig/fontconfig.git fontconfig
 cd fontconfig
 autoreconf -fi
@@ -190,9 +211,9 @@ autoreconf -fi
 make -j"$(nproc)" && make install
 cd ..
 
-#####################################
-# 11) harfbuzz
-#####################################
+####################################
+# 12) harfbuzz
+####################################
 git clone --depth=1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
 cd harfbuzz
 meson setup build \
@@ -208,15 +229,16 @@ cpu_family = 'aarch64'
 cpu = 'aarch64'
 endian = 'little'
 EOF
-) --prefix="$PREFIX_DEPS" -Dfreetype=enabled -Dfontconfig=enabled -Dtests=disabled
+) --prefix="$PREFIX_DEPS" \
+    -Dfreetype=enabled -Dfontconfig=enabled -Dtests=disabled
 meson compile -C build --parallel "$(nproc)"
 meson install -C build
 cd ..
 
-#####################################
-# 13+) remaining deps (SDL2, libusb, libtiff, lcms2, libgphoto2)
-#####################################
-
+####################################
+# 13+) Remaining deps
+####################################
+# SDL2
 git clone --depth=1 https://github.com/libsdl-org/SDL.git SDL2
 cd SDL2
 mkdir -p build && cd build
