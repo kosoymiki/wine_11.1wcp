@@ -40,7 +40,7 @@ jobs:
             libasound2-dev libpulse-dev libv4l-dev \
             libx11-dev libxext-dev libxfixes-dev libxinerama-dev \
             libxi-dev libxrandr-dev libxrender-dev \
-            libfontconfig-dev libfreetype-dev \
+            libfontconfig-dev \
             libgnutls28-dev libdbus-1-dev libsdl2-dev \
             libjpeg-dev libpng-dev libxml2-dev \
             libudev-dev libusb-1.0-0-dev libldap2-dev \
@@ -87,34 +87,106 @@ jobs:
           cd ..
 
       ###################################################
-      # 6) Apply wine-tkg patches (manual)
+      # 6) Apply wine‑tkg patches (with skip + minimal set + debug diffs)
       ###################################################
-      - name: Apply wine-tkg patches
+      - name: Apply wine‑tkg patches (advanced diagnostics)
         run: |
           set -euxo pipefail
+
           cd wine
 
-          PATCH_GROUPS=(
-            "../wine-tkg/wine-tkg-git/wine-tkg-patches/esync-fsync"
-            "../wine-tkg/wine-tkg-git/wine-tkg-patches/general"
-            "../wine-tkg/wine-tkg-git/wine-tkg-patches/misc"
-            "../wine-tkg/wine-tkg-git/wine-tkg-patches/hotfixes"
-            "../wine-tkg/wine-tkg-git/wine-tkg-patches/proton"
-            "../wine-tkg/wine-tkg-git/wine-tkg-patches/community-patches"
+          mkdir -p rejects logs diffs
+
+          echo "==> Applying wine‑tkg patches with diagnostics" | tee apply-patch.log
+
+          # List of categories in preferred order
+          PATCH_CATEGORIES=(
+            "general"
+            "hotfixes"
+            "misc"
+            "proton"
+            "community-patches"
+            "esync-fsync"
           )
 
-          for D in "${PATCH_GROUPS[@]}"; do
-            if [ -d "$D" ]; then
-              for P in "$D"/*.patch; do
-                [ -f "$P" ] && patch -p1 < "$P" || true
+          BASE_TKG="../wine-tkg/wine-tkg-git/wine-tkg-patches"
+
+          # Track which patches are applied successfully
+          > applied-patches.list
+
+          for category in "${PATCH_CATEGORIES[@]}"; do
+            echo "--- CATEGORY: $category" | tee -a apply-patch.log
+            PATCH_DIR="${BASE_TKG}/${category}"
+
+            if [ -d "$PATCH_DIR" ]; then
+              for patchfile in "$PATCH_DIR"/*.patch; do
+                if [ -f "$patchfile" ]; then
+                  echo "Processing patch: $patchfile" | tee -a apply-patch.log
+
+                  # Take diff before applying
+                  git diff > before.diff || true
+
+                  # Attempt to apply patch capturing output
+                  patch -p1 --forward < "$patchfile" > "logs/$(basename "$patchfile").out" 2>&1 || true
+
+                  # Check if any reject hunks exist
+                  if grep -q -E "Hunk FAILED|fail" "logs/$(basename "$patchfile").out"; then
+                    echo "❗ Failed or conflict in: $patchfile" | tee -a apply-patch.log
+                    # Move rejects into rejects/
+                    if ls *.rej 1> /dev/null 2>&1; then
+                      mv *.rej "rejects/$(basename "$patchfile").rej" || true
+                      echo "Saved reject hunks for $(basename "$patchfile")" | tee -a apply-patch.log
+                    fi
+                  else
+                    # Successful application
+                    echo "✅ Applied: $patchfile" | tee -a apply-patch.log
+                    echo "$patchfile" >> applied-patches.list
+
+                    # Produce diff of changes
+                    git diff > "diffs/$(basename "$patchfile").diff" || true
+                    echo "Saved diff for $(basename "$patchfile")" | tee -a apply-patch.log
+                  fi
+                fi
               done
+            else
+              echo "Skipping missing category: $category" | tee -a apply-patch.log
             fi
           done
 
+          echo "==> Patch application finished" | tee -a apply-patch.log
           cd ..
 
       ###################################################
-      # 7) Configure & Compile Wine
+      # 7) Build FreeType2 for mingw
+      ###################################################
+      - name: Build FreeType2 for mingw (Windows target)
+        run: |
+          set -euxo pipefail
+          mkdir -p deps/freetype2
+          cd deps/freetype2
+          git clone --depth 1 https://git.savannah.gnu.org/git/freetype/freetype2.git .
+          mkdir build && cd build
+
+          export CC=aarch64-w64-mingw32-clang
+          export CXX=aarch64-w64-mingw32-clang++
+          export AR=aarch64-w64-mingw32-ar
+          export RANLIB=aarch64-w64-mingw32-ranlib
+          export WINDRES=aarch64-w64-mingw32-windres
+
+          export PREFIX="$(pwd)/install"
+
+          ../configure \
+            --host=aarch64-w64-mingw32 \
+            --prefix="$PREFIX" \
+            --enable-static \
+            --disable-shared
+
+          make -j"$(nproc)"
+          make install
+          cd ../../../
+
+      ###################################################
+      # 8) Configure & Compile Wine
       ###################################################
       - name: Configure & Compile Wine
         run: |
@@ -143,6 +215,9 @@ jobs:
           export RC=aarch64-w64-mingw32-windres
           export RANLIB=aarch64-w64-mingw32-ranlib
 
+          export CPPFLAGS="-I$PWD/../../deps/freetype2/build/install/include"
+          export LDFLAGS="-L$PWD/../../deps/freetype2/build/install/lib"
+
           ../configure \
             --build="$BUILD" \
             --host="$HOST" \
@@ -163,7 +238,7 @@ jobs:
           make -j"$(nproc)"
 
       ###################################################
-      # 8) Build DXVK
+      # 9) Build DXVK
       ###################################################
       - name: Build DXVK
         run: |
@@ -176,7 +251,7 @@ jobs:
           ninja -C build install
 
       ###################################################
-      # 9) Build VKD3D-Proton
+      # 10) Build VKD3D-Proton
       ###################################################
       - name: Build VKD3D-Proton
         run: |
@@ -188,7 +263,7 @@ jobs:
           ninja -C build install
 
       ###################################################
-      # 10) Package Winlator .wcp
+      # 11) Package .wcp
       ###################################################
       - name: Package .wcp
         run: |
@@ -198,29 +273,26 @@ jobs:
           cd install
 
           mkdir -p wcp/{bin,lib,share}
-
           cp -a usr/bin/* wcp/bin/ || true
           cp -a usr/lib/wine/* wcp/lib/ || true
           cp -a usr/share/* wcp/share/ || true
-
           cd wcp/bin && ln -sf wine64 wine
-
           find . -type f -exec chmod +x {} \;
 
           cat > profile.json << 'EOF'
           {
-            "id": "wine-11.1-staging-tkg-arm64ec",
-            "name": "Wine 11.1 Staging-TkG Arm64EC",
-            "version": "11.1",
-            "arch": "arm64ec",
-            "files": {"bin":"bin/", "lib":"lib/", "share":"share/"}
+            "id":"wine-11.1-staging-tkg-arm64ec",
+            "name":"Wine 11.1 Staging-TkG Arm64EC",
+            "version":"11.1",
+            "arch":"arm64ec",
+            "files":{"bin":"bin/","lib":"lib/","share":"share/"}
           }
           EOF
 
           tar -cJf "$GITHUB_WORKSPACE/wine-11.1-staging-tkg-arm64ec.wcp" profile.json wcp
 
       ###################################################
-      # 11) Upload artifact
+      # 12) Upload artifact
       ###################################################
       - name: Upload artifact
         uses: actions/upload-artifact@v4
