@@ -383,7 +383,6 @@ grep -n "png_dep" -n src/meson.build || true
 grep -n "zlib_dep" -n src/meson.build || true
 echo "=== END SEARCH ==="
 
-# Apply Brotli linking patch
 cat > harfbuzz-brotli.patch << 'EOF'
 diff --git a/src/meson.build b/src/meson.build
 index 0000000..0000000 100644
@@ -396,12 +395,15 @@ index 0000000..0000000 100644
 +  brotli_common  = cc.find_library('brotlicommon', dirs : get_option('libdir'), required : false)
 +  if brotli_decoder.found() and brotli_common.found()
 +    harfbuzz_deps += [
-+      # Include entire common library so that all brotli symbols are present
++      # Include common module of Brotli so all symbols are resolved
 +      declare_dependency(link_whole : brotli_common),
 +      brotli_decoder,
 +    ]
 +  endif
 EOF
+
+echo "=== Applying harfbuzz-brotli.patch ==="
+git apply harfbuzz-brotli.patch || ( echo "ERROR: failed to apply patch"; exit 1 )
 
 echo "=== Applying harfbuzz-brotli.patch ==="
 git apply harfbuzz-brotli.patch || (echo "ERROR: failed to apply patch"; exit 1)
