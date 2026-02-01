@@ -383,9 +383,10 @@ grep -n "png_dep" -n src/meson.build || true
 grep -n "zlib_dep" -n src/meson.build || true
 echo "=== END SEARCH ==="
 
+# Create a proper git patch for HarfBuzz
 cat > harfbuzz-brotli.patch << 'EOF'
 diff --git a/src/meson.build b/src/meson.build
-index 0000000..0000000 100644
+index 00000000..00000000
 --- a/src/meson.build
 +++ b/src/meson.build
 @@
@@ -405,8 +406,6 @@ EOF
 echo "=== Applying harfbuzz-brotli.patch ==="
 git apply harfbuzz-brotli.patch || ( echo "ERROR: failed to apply patch"; exit 1 )
 
-echo "=== Applying harfbuzz-brotli.patch ==="
-git apply harfbuzz-brotli.patch || (echo "ERROR: failed to apply patch"; exit 1)
 # Генерируем файл meson_cross.ini
 MESON_CROSS="$PWD/meson_cross.ini"
 cat > "$MESON_CROSS" <<EOF
