@@ -131,29 +131,52 @@ cd ..
 # Brotli (needed by FreeType for WOFF2)
 ####################################
 
-# 1) Клонируем конкретную версию релиза
+# 1) Создаём временный CMake toolchain file
+export BROTLI_TOOLCHAIN="$PWD/brotli_toolchain.cmake"
+cat > "$BROTLI_TOOLCHAIN" <<EOF
+# Cross‑compile for Windows aarch64
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
+# Компиляторы целевой платформы
+set(CMAKE_C_COMPILER   aarch64-w64-mingw32-clang)
+set(CMAKE_CXX_COMPILER aarch64-w64-mingw32-clang++)
+
+# Где искать целевые заголовки/библиотеки
+set(CMAKE_FIND_ROOT_PATH $PREFIX_DEPS)
+
+# Правила поиска: программы — хостовые, библиотеки и заголовки — целевые
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+
+# НЕ ИСПОЛЬЗОВАТЬ тесты, которые требуют выполнения целевых бинарников
+set(BROTLI_DISABLE_TESTS ON)
+EOF
+
+# 2) Клонируем исходники Brotli
 git clone --depth=1 https://github.com/google/brotli.git brotli
 cd brotli
 
-# 2) Создаём директорию для out-of-source build
+# 3) Создаём директорию сборки
 mkdir build && cd build
 
-# 3) Генерируем CMake с указанием toolchain для кросс‑компиляции
+# 4) Конфигурация CMake с указанием toolchain
 cmake \
-  -DCMAKE_TOOLCHAIN_FILE="$CMAKE_TOOLCHAIN_FILE" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE="$BROTLI_TOOLCHAIN" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
-  -DBROTLI_DISABLE_TESTS=ON \
   -DBUILD_SHARED_LIBS=OFF \
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  -DBROTLI_DISABLE_TESTS=ON \
   ..
 
-# 4) Сборка и установка
+# 5) Сборка и установка
 cmake --build . --parallel "$(nproc)"
 cmake --install .
 
-# Возвращаемся в корень
+# Возвращаемся в корень и удаляем временный файл
 cd ../..
+rm -f "$BROTLI_TOOLCHAIN"
 
 ####################################
 # 4) freetype2
