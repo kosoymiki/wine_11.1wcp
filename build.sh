@@ -403,15 +403,19 @@ root_prefix = '$PREFIX_DEPS'
 pkg_config_path = '$PKG_CONFIG_PATH'
 EOF
 
-# Настройка сборки через Meson
+echo "=== RUNNING MESON CONFIGURATION ==="
 meson setup build \
   --cross-file="$MESON_CROSS" \
   --prefix="$PREFIX_DEPS" \
   -Dfreetype=enabled \
-  -Dtests=disabled
+  -Dtests=disabled \
+  2>&1 | tee meson-harfbuzz-config.log
+echo "=== END MESON CONFIG ==="
 
 # Собираем и устанавливаем
-ninja -C build -j "$(nproc)"
+echo "=== RUNNING NINJA BUILD ==="
+ninja -C build -j "$(nproc)" 2>&1 | tee ninja-harfbuzz-build.log
+echo "=== END NINJA BUILD ==="
 ninja -C build -j "$(nproc)" install
 
 cd ..
