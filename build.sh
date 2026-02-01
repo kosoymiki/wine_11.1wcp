@@ -9,6 +9,7 @@ if command -v apt &>/dev/null && command -v sudo &>/dev/null; then
 sudo apt install -y --no-install-recommends \
   build-essential autoconf automake libtool gettext gperf \
   flex bison ninja-build cmake meson pkg-config \
+  meson ninja-build \
   python3 python3-pip git wget unzip \
   intltool gtk-doc-tools \
   libasound2-dev libpulse-dev libv4l-dev \
