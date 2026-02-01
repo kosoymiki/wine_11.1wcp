@@ -376,10 +376,8 @@ meson setup build \
   --cross-file="$MESON_CROSS" \
   --prefix="$PREFIX_DEPS" \
   -Dfreetype=enabled \
-  -Dfontconfig=enabled \
   -Dtests=disabled
 
-# Здесь исправлено:
 ninja -C build -j "$(nproc)"
 ninja -C build -j "$(nproc)" install
 
