@@ -217,7 +217,6 @@ pkg-config --libs freetype2
 echo "=== Building libxml2 ==="
 wget -q https://download.gnome.org/sources/libxml2/2.9/libxml2-2.9.14.tar.xz \
   -O libxml2-2.9.14.tar.xz
-
 tar xf libxml2-2.9.14.tar.xz
 cd libxml2-2.9.14
 
