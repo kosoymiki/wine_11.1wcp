@@ -352,7 +352,6 @@ echo "=== Building harfbuzz ==="
 git clone --depth=1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
 cd harfbuzz
 
-# Meson cross file
 MESON_CROSS="$PWD/meson_cross.ini"
 cat > "$MESON_CROSS" <<EOF
 [binaries]
@@ -375,13 +374,12 @@ EOF
 meson setup build \
   --cross-file="$MESON_CROSS" \
   --prefix="$PREFIX_DEPS" \
-  -Dfreetype=true \
-  -Dfontconfig=true \
-  -Dtests=false
+  -Dfreetype=enabled \
+  -Dfontconfig=enabled \
+  -Dtests=disabled
 
 ninja -C build --parallel "$(nproc)"
 ninja -C build install
-
 cd ..
 
 ####################################
