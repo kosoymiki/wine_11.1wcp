@@ -128,19 +128,28 @@ cmake --install build
 cd ..
 
 ####################################
-# Expat
+# Build expat
 ####################################
-
+echo ">>> Build expat"
 wget -q https://github.com/libexpat/libexpat/releases/download/R_2_7_4/expat-2.7.4.tar.xz
 tar xf expat-2.7.4.tar.xz
 cd expat-2.7.4
+
+# чтобы pkg-config искал .pc в префиксе экспата
+export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig:$PKG_CONFIG_PATH"
+export PKG_CONFIG_LIBDIR="$PREFIX_DEPS/lib/pkgconfig"
+export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 
 ./configure \
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static \
+  --with-pkgconfigdir="$PREFIX_DEPS/lib/pkgconfig" \
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
+
+make -j"$(nproc)" && make install
+cd ..
 
 ####################################
 # 4) freetype2
@@ -204,23 +213,22 @@ cd ..
 
 
 ####################################
-# 11) fontconfig
+# Build fontconfig
 ####################################
 echo ">>> Build fontconfig 2.16.0"
 wget -q https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.0.tar.xz
 tar xf fontconfig-2.16.0.tar.xz
 cd fontconfig-2.16.0
 
-# Указываем include путей, особенно freetype2
-export CPPFLAGS="-I$PREFIX_DEPS/include/freetype2 -I$PREFIX_DEPS/include"
+# флаги, чтобы подхватить expat и freetype2
+export CPPFLAGS="-I$PREFIX_DEPS/include -I$PREFIX_DEPS/include/freetype2"
 export LDFLAGS="-L$PREFIX_DEPS/lib"
 
 ./configure \
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static \
-  --enable-expat \
-  --with-freetype=yes \
+  --with-expat=yes \
   CPPFLAGS="$CPPFLAGS" \
   LDFLAGS="$LDFLAGS"
 
