@@ -127,6 +127,12 @@ cmake --build build --parallel "$(nproc)"
 cmake --install build
 cd ..
 
+####################################
+# 4) freetype2
+####################################
+build_autotools_dep \
+  https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.xz \
+  freetype-2.14.1
 
 ####################################
 # Build expat
@@ -181,12 +187,6 @@ export LDFLAGS="-L$PREFIX_DEPS/lib"
 make -j"$(nproc)" && make install
 cd ..
 
-####################################
-# 4) freetype2
-####################################
-build_autotools_dep \
-  https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.xz \
-  freetype-2.14.1
 
 ####################################
 # 5) GMP
