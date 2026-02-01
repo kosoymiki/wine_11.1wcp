@@ -140,23 +140,25 @@ build_autotools_dep \
 # Brotli (needed by FreeType for WOFF2)
 ####################################
 
-# 1) Create temporary CMake toolchain file
+# 1) Create temporary CMake toolchain
 export BROTLI_TOOLCHAIN="$PWD/brotli_toolchain.cmake"
 cat > "$BROTLI_TOOLCHAIN" <<EOF
 # Cross‑compile for Windows aarch64
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
 
+# Set cross compilers
 set(CMAKE_C_COMPILER   aarch64-w64-mingw32-clang)
 set(CMAKE_CXX_COMPILER aarch64-w64-mingw32-clang++)
 
+# Search paths
 set(CMAKE_FIND_ROOT_PATH $PREFIX_DEPS)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
-# Explicitly build static libs only
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# Ensure static libs
+set(BUILD_SHARED_LIBS OFF)
 EOF
 
 # 2) Clone Brotli
@@ -165,7 +167,6 @@ cd brotli
 
 # 3) Configure with CMake
 mkdir build && cd build
-
 cmake \
   -DCMAKE_TOOLCHAIN_FILE="$BROTLI_TOOLCHAIN" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
@@ -176,12 +177,10 @@ cmake \
 # 4) Build all static libs
 cmake --build . --parallel "$(nproc)"
 
-# 5) Explicitly install static libraries
-#    CMake normally builds these:
-#    libbrotlicommon.a libbrotlidec.a libbrotlienc.a
+# 5) Explicitly copy ALL static libs
 cp libbrotlicommon.a libbrotlidec.a libbrotlienc.a "$PREFIX_DEPS/lib/"
 
-# 6) Install headers and pkgconfig
+# 6) Install headers + pkgconfig
 cmake --install .
 
 cd ../..
