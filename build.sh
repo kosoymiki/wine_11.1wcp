@@ -219,6 +219,7 @@ export LDFLAGS="-L$PREFIX_DEPS/lib"
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static \
+  --enable-libxml2 \
   --with-expat=yes \
   --with-freetype=yes \
   CPPFLAGS="$CPPFLAGS" \
