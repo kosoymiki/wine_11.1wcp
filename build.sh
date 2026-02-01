@@ -157,8 +157,8 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
-# Ensure static libs
-set(BUILD_SHARED_LIBS OFF)
+# Force static libs
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
 EOF
 
 # 2) Clone Brotli
@@ -166,7 +166,7 @@ git clone --depth=1 https://github.com/google/brotli.git brotli
 cd brotli
 
 # 3) Configure with CMake
-mkdir build && cd build
+mkdir -p build && cd build
 cmake \
   -DCMAKE_TOOLCHAIN_FILE="$BROTLI_TOOLCHAIN" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
@@ -178,14 +178,18 @@ cmake \
 cmake --build . --parallel "$(nproc)"
 
 # 5) Explicitly copy ALL static libs
+#    Brotli typically builds:
+#      libbrotlicommon.a
+#      libbrotlidec.a
+#      libbrotlienc.a
 cp libbrotlicommon.a libbrotlidec.a libbrotlienc.a "$PREFIX_DEPS/lib/"
 
 # 6) Install headers + pkgconfig
 cmake --install .
 
+# 7) Cleanup
 cd ../..
 rm -f "$BROTLI_TOOLCHAIN"
-
 
 ####################################
 # 4) freetype2
