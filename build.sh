@@ -128,11 +128,8 @@ cmake --install build
 cd ..
 
 ####################################
-# 4) freetype2
+# Expat
 ####################################
-build_autotools_dep \
-  https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.xz \
-  freetype-2.14.1
 
 wget -q https://github.com/libexpat/libexpat/releases/download/R_2_7_4/expat-2.7.4.tar.xz
 tar xf expat-2.7.4.tar.xz
@@ -144,6 +141,13 @@ cd expat-2.7.4
   --disable-shared --enable-static \
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
+
+####################################
+# 4) freetype2
+####################################
+build_autotools_dep \
+  https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.xz \
+  freetype-2.14.1
 
 ####################################
 # 5) GMP
