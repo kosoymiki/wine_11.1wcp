@@ -376,25 +376,6 @@ echo "=== Building harfbuzz ==="
 git clone --depth=1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
 cd harfbuzz
 
-cat > harfbuzz-brotli.patch << 'EOF'
-diff --git a/src/meson.build b/src/meson.build
-index 0000000..0000000 100644
---- a/src/meson.build
-+++ b/src/meson.build
-@@
- harfbuzz_deps += [freetype_dep]
-+  brotli_decoder = cc.find_library('brotlidec', dirs : get_option('libdir'), required : false)
-+  brotli_common  = cc.find_library('brotlicommon', dirs : get_option('libdir'), required : false)
-+  if brotli_decoder.found() and brotli_common.found()
-+    harfbuzz_deps += [
-+      declare_dependency(link_whole : brotli_common),
-+      brotli_decoder,
-+    ]
-+  endif
-EOF
-
-git apply harfbuzz-brotli.patch
-
 # Для отладки: покажем где находятся зависимости
 echo "=== SEARCHING DEPENDENCY BLOCK ==="
 grep -n "harfbuzz_deps" -n src/meson.build || true
