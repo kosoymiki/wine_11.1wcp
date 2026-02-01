@@ -127,18 +127,15 @@ cmake --build build --parallel "$(nproc)"
 cmake --install build
 cd ..
 
+
 ####################################
 # Build expat
 ####################################
+
 echo ">>> Build expat"
 wget -q https://github.com/libexpat/libexpat/releases/download/R_2_7_4/expat-2.7.4.tar.xz
 tar xf expat-2.7.4.tar.xz
 cd expat-2.7.4
-
-# чтобы pkg-config искал .pc в префиксе экспата
-export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig:$PKG_CONFIG_PATH"
-export PKG_CONFIG_LIBDIR="$PREFIX_DEPS/lib/pkgconfig"
-export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 
 ./configure \
   --host="$TOOLCHAIN" \
@@ -147,6 +144,39 @@ export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
   --with-pkgconfigdir="$PREFIX_DEPS/lib/pkgconfig" \
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
+
+make -j"$(nproc)" && make install
+cd ..
+
+# Make sure pkg-config sees expat
+export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig${PKG_CONFIG_PATH+:}${PKG_CONFIG_PATH:-}"
+export PKG_CONFIG_LIBDIR="$PREFIX_DEPS/lib/pkgconfig"
+export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
+
+echo ">>> Check expat pkg-config"
+pkg-config --modversion expat
+pkg-config --cflags expat
+pkg-config --libs expat
+
+####################################
+# Build fontconfig
+####################################
+
+echo ">>> Build fontconfig 2.16.0"
+wget -q https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.0.tar.xz
+tar xf fontconfig-2.16.0.tar.xz
+cd fontconfig-2.16.0
+
+# Provide include paths so freetype and expat can be found
+export CPPFLAGS="-I$PREFIX_DEPS/include -I$PREFIX_DEPS/include/freetype2"
+export LDFLAGS="-L$PREFIX_DEPS/lib"
+
+./configure \
+  --host="$TOOLCHAIN" \
+  --prefix="$PREFIX_DEPS" \
+  --disable-shared --enable-static \
+  CPPFLAGS="$CPPFLAGS" \
+  LDFLAGS="$LDFLAGS"
 
 make -j"$(nproc)" && make install
 cd ..
@@ -208,30 +238,6 @@ cd libev-4.33
   --disable-shared --enable-static \
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
-make -j"$(nproc)" && make install
-cd ..
-
-
-####################################
-# Build fontconfig
-####################################
-echo ">>> Build fontconfig 2.16.0"
-wget -q https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.0.tar.xz
-tar xf fontconfig-2.16.0.tar.xz
-cd fontconfig-2.16.0
-
-# флаги, чтобы подхватить expat и freetype2
-export CPPFLAGS="-I$PREFIX_DEPS/include -I$PREFIX_DEPS/include/freetype2"
-export LDFLAGS="-L$PREFIX_DEPS/lib"
-
-./configure \
-  --host="$TOOLCHAIN" \
-  --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static \
-  --with-expat=yes \
-  CPPFLAGS="$CPPFLAGS" \
-  LDFLAGS="$LDFLAGS"
-
 make -j"$(nproc)" && make install
 cd ..
 
