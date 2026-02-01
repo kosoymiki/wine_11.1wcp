@@ -2,11 +2,31 @@
 set -euxo pipefail
 
 #####################################
-# Check deps prefix
+# Ensure PREFIX_DEPS is set
 #####################################
-if [ -z "${PREFIX_DEPS}" ]; then
+if [ -z "${PREFIX_DEPS:-}" ]; then
   PREFIX_DEPS="${PWD}/deps/install"
 fi
+
+#####################################
+# Environment (Cross Toolchain)
+#####################################
+export TOOLCHAIN="aarch64-w64-mingw32"
+export CC="${TOOLCHAIN}-clang"
+export CXX="${TOOLCHAIN}-clang++"
+export AR="${TOOLCHAIN}-ar"
+export RANLIB="${TOOLCHAIN}-ranlib"
+export WINDRES="${TOOLCHAIN}-windres"
+
+# Make sure pkg-config finds our built deps
+export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig:$PREFIX_DEPS/share/pkgconfig"
+export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
+export PKG_CONFIG_LIBDIR="$PREFIX_DEPS/lib/pkgconfig"
+
+# CFLAGS/LDFLAGS pointing to deps
+export CFLAGS="-I$PREFIX_DEPS/include $CFLAGS"
+export CXXFLAGS="-I$PREFIX_DEPS/include $CXXFLAGS"
+export LDFLAGS="-L$PREFIX_DEPS/lib $LDFLAGS"
 
 #####################################
 # Clone Wine + patches
@@ -69,6 +89,7 @@ cd ..
 
 cd wine
 
+# Build wine tools
 mkdir -p wine-tools-build
 cd wine-tools-build
 
@@ -76,28 +97,23 @@ cd wine-tools-build
   --enable-tools \
   --disable-tests \
   --disable-win16 \
-  --enable-archs=aarch64
+  --enable-archs=aarch64 \
+  \
+  PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
+  CFLAGS="$CFLAGS" \
+  LDFLAGS="$LDFLAGS"
 
 make -j"$(nproc)"
 cd ..
 
+# Prepare build directory
 mkdir -p build
 cd build
 
 export BUILD=aarch64-linux-gnu
 export HOST=aarch64-w64-mingw32
-export CC=aarch64-w64-mingw32-clang
-export CXX=aarch64-w64-mingw32-clang++
-export AR=aarch64-w64-mingw32-ar
-export LD=aarch64-w64-mingw32-lld
-export WINDRES=aarch64-w64-mingw32-windres
-export RANLIB=aarch64-w64-mingw32-ranlib
 
-export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig${PKG_CONFIG_PATH+:}${PKG_CONFIG_PATH:-}"
-export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
-export CFLAGS="-I$PREFIX_DEPS/include $CFLAGS"
-export LDFLAGS="-L$PREFIX_DEPS/lib $LDFLAGS"
-
+# Configure Wine proper
 ../configure \
   --build="$BUILD" \
   --host="$HOST" \
@@ -119,8 +135,13 @@ export LDFLAGS="-L$PREFIX_DEPS/lib $LDFLAGS"
   --with-vulkan \
   --with-lcms2 \
   --with-libtiff \
-  --with-libusb
+  --with-libusb \
+  \
+  PKG_CONFIG_PATH="$PKG_CONFIG_PATH" \
+  CFLAGS="$CFLAGS" \
+  LDFLAGS="$LDFLAGS"
 
+# Build Wine
 make -j"$(nproc)"
 
 #####################################
