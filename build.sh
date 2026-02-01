@@ -376,35 +376,31 @@ echo "=== Building harfbuzz ==="
 git clone --depth=1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
 cd harfbuzz
 
-# Для отладки: покажем где находятся зависимости
-echo "=== SEARCHING DEPENDENCY BLOCK ==="
-grep -n "harfbuzz_deps" -n src/meson.build || true
-grep -n "png_dep" -n src/meson.build || true
-grep -n "zlib_dep" -n src/meson.build || true
-echo "=== END SEARCH ==="
-
-# Create a proper git patch for HarfBuzz
 cat > harfbuzz-brotli.patch << 'EOF'
 diff --git a/src/meson.build b/src/meson.build
-index 00000000..00000000
+index 0000000..0000000 100644
 --- a/src/meson.build
 +++ b/src/meson.build
 @@
  harfbuzz_deps += [freetype_dep]
-+  # Brotli static decoding support (needed by FreeType WOFF2)
 +  brotli_decoder = cc.find_library('brotlidec', dirs : get_option('libdir'), required : false)
 +  brotli_common  = cc.find_library('brotlicommon', dirs : get_option('libdir'), required : false)
 +  if brotli_decoder.found() and brotli_common.found()
 +    harfbuzz_deps += [
-+      # Include common module of Brotli so all symbols are resolved
 +      declare_dependency(link_whole : brotli_common),
 +      brotli_decoder,
 +    ]
 +  endif
 EOF
 
-echo "=== Applying harfbuzz-brotli.patch ==="
-git apply harfbuzz-brotli.patch || ( echo "ERROR: failed to apply patch"; exit 1 )
+git apply harfbuzz-brotli.patch
+
+# Для отладки: покажем где находятся зависимости
+echo "=== SEARCHING DEPENDENCY BLOCK ==="
+grep -n "harfbuzz_deps" -n src/meson.build || true
+grep -n "png_dep" -n src/meson.build || true
+grep -n "zlib_dep" -n src/meson.build || true
+echo "=== END SEARCH ==="
 
 # Генерируем файл meson_cross.ini
 MESON_CROSS="$PWD/meson_cross.ini"
