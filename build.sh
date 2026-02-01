@@ -389,6 +389,34 @@ index e3c1f2a..b2a3f5c 100644
 +  # Конец поддержки Brotli
  ]
 
+diff --git a/src/meson.build b/src/meson.build
+index e3c1f2a..addfix 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -94,6 +94,19 @@ if glib_dep.found()
+ endif
+
+ harfbuzz_deps = [
+   freetype2_dep,
+   zlib_dep,
+   png_dep,
++
++  # Brotli: всегда включаем обе статические библиотеки
++  # Оборачиваем common в link_whole, чтобы обеспечить попадание всех символов
++  declare_dependency(
++    link_args : [
++      '-Wl,--whole-archive',
++      '-lbrotlicommon',
++      '-Wl,--no-whole-archive',
++      '-lbrotlidec',
++    ],
++    include_directories : include_directories('$PREFIX_DEPS/include'),
++  ),
++  # Brotli static linking end
+ ]
+
+ # Default common library
+
 # Генерируем файл meson_cross.ini
 MESON_CROSS="$PWD/meson_cross.ini"
 cat > "$MESON_CROSS" <<EOF
