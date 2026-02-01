@@ -128,6 +128,34 @@ cmake --install build
 cd ..
 
 ####################################
+# Brotli (needed by FreeType for WOFF2)
+####################################
+
+# 1) Клонируем конкретную версию релиза
+git clone --depth=1 https://github.com/google/brotli.git brotli
+cd brotli
+
+# 2) Создаём директорию для out-of-source build
+mkdir build && cd build
+
+# 3) Генерируем CMake с указанием toolchain для кросс‑компиляции
+cmake \
+  -DCMAKE_TOOLCHAIN_FILE="$CMAKE_TOOLCHAIN_FILE" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
+  -DBROTLI_DISABLE_TESTS=ON \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  ..
+
+# 4) Сборка и установка
+cmake --build . --parallel "$(nproc)"
+cmake --install .
+
+# Возвращаемся в корень
+cd ../..
+
+####################################
 # 4) freetype2
 ####################################
 build_autotools_dep \
