@@ -215,14 +215,20 @@ pkg-config --libs freetype2
 # 7) libxml2 (с SAX1)
 ####################################
 echo "=== Building libxml2 ==="
-wget -q http://xmlsoft.org/sources/libxml2-2.9.14.tar.xz
+wget -q https://download.gnome.org/sources/libxml2/2.9/libxml2-2.9.14.tar.xz \
+  -O libxml2-2.9.14.tar.xz
+
 tar xf libxml2-2.9.14.tar.xz
 cd libxml2-2.9.14
+
 ./configure \
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static \
-  --with-sax1
+  --with-sax1 \
+  CPPFLAGS="$CPPFLAGS" \
+  LDFLAGS="$LDFLAGS"
+
 make -j"$(nproc)" && make install
 cd ..
 
