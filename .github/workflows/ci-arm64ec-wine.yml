@@ -42,8 +42,8 @@ jobs:
 
     - name: Confirm freetype pkgconfig
       run: |
-    echo "PKG_CONFIG_PATH=$PWD/deps/install/lib/pkgconfig"
-    ls deps/install/lib/pkgconfig
+        echo "PKG_CONFIG_PATH=$PWD/deps/install/lib/pkgconfig"
+        ls deps/install/lib/pkgconfig
 
     - name: Run wine build
       run: |
@@ -54,5 +54,3 @@ jobs:
       with:
         name: wine-arm64ec-wcp
         path: "*.wcp"
-
-    
