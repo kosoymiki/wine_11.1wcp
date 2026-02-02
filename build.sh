@@ -420,14 +420,14 @@ cd ../..
 ####################################
 echo "=== Building libusb (cross compile) ==="
 
-# Clone libusb
+# Clone libusb sources
 git clone --depth=1 https://github.com/libusb/libusb.git libusb
 cd libusb
 
-# Prepare autoconf build system (generate configure)
+# Prepare Autotools build system
 ./autogen.sh
 
-# Configure for target aarch64‑windows using cross‑compiler
+# Configure for cross compilation
 ./configure \
   --host=aarch64-w64-mingw32 \
   --prefix="${PREFIX_DEPS}" \
@@ -437,13 +437,12 @@ cd libusb
   CFLAGS="${CFLAGS}" \
   LDFLAGS="${LDFLAGS}"
 
-# Build and install
+# Compile and install
 make -j"$(nproc)"
 make install
 
 cd ..
 echo "=== libusb build complete ==="
-
 
 git clone --depth=1 https://gitlab.com/libtiff/libtiff.git libtiff
 cd libtiff
