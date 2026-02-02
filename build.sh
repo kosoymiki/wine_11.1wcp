@@ -197,18 +197,15 @@ build_autotools_dep \
   https://sourceforge.net/projects/freetype/files/freetype2/2.14.1/freetype-2.14.1.tar.xz/download \
   freetype-2.14.1
 
-# Explicitly ensure pkgconfig file is in correct place
-if [ -f "$PREFIX_DEPS/lib/pkgconfig/freetype2.pc" ]; then
-  echo "freetype2 .pc found"
-else
-  echo "Error: freetype2 .pc not found"
+# Ensure .pc exists
+if [ ! -f "$PREFIX_DEPS/lib/pkgconfig/freetype2.pc" ]; then
+  echo "Error: freetype2.pc missing"
   exit 1
 fi
 
-# Ensure pkg-config sees freetype2
 export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig${PKG_CONFIG_PATH+:}${PKG_CONFIG_PATH:-}"
-export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 export PKG_CONFIG_LIBDIR="$PREFIX_DEPS/lib/pkgconfig"
+export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 
 echo ">>> pkg-config freetype2 info:"
 pkg-config --modversion freetype2
