@@ -415,14 +415,34 @@ cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
 
-git clone https://github.com/libusb/libusb.git
+####################################
+# libusb (Autotools cross‑compile)
+####################################
+echo "=== Building libusb (cross compile) ==="
+
+# Clone libusb
+git clone --depth=1 https://github.com/libusb/libusb.git libusb
 cd libusb
+
+# Prepare autoconf build system (generate configure)
 ./autogen.sh
+
+# Configure for target aarch64‑windows using cross‑compiler
 ./configure \
   --host=aarch64-w64-mingw32 \
   --prefix="${PREFIX_DEPS}" \
-  --disable-shared --enable-static
-make -j"$(nproc)" && make install
+  --disable-shared \
+  --enable-static \
+  CC="${CC}" \
+  CFLAGS="${CFLAGS}" \
+  LDFLAGS="${LDFLAGS}"
+
+# Build and install
+make -j"$(nproc)"
+make install
+
+cd ..
+echo "=== libusb build complete ==="
 
 
 git clone --depth=1 https://gitlab.com/libtiff/libtiff.git libtiff
