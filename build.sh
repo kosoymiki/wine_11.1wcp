@@ -380,56 +380,81 @@ echo ">>> Extracting brotli"
 7z x brotli-arm64.7z -obrotli
 
 echo ">>> Installing brotli into deps/install"
-mkdir -p "$PREFIX_DEPS/lib/pkgconfig"
-cp brotli/lib/*.a "$PREFIX_DEPS/lib/"
-cp -r brotli/include/brotli "$PREFIX_DEPS/include/"
-cp brotli/lib/pkgconfig/*.pc "$PREFIX_DEPS/lib/pkgconfig/"
+mkdir -p "$PREFIX_DEPS/lib" "$PREFIX_DEPS/include" "$PREFIX_DEPS/lib/pkgconfig"
+
+# Copy all static libs
+echo ">>> Copying brotli static libs"
+find brotli -type f -name '*.a' -print | while read file; do
+  cp "$file" "$PREFIX_DEPS/lib/"
+done
+
+# Copy headers
+echo ">>> Copying brotli headers"
+find brotli -type d -name 'include' -print | while read inc; do
+  cp -r "$inc/"* "$PREFIX_DEPS/include/"
+done
+
+# Generate pkgconfig file if needed
+echo ">>> Generating brotli.pc if absent"
+PCFILE="$PREFIX_DEPS/lib/pkgconfig/brotli.pc"
+if [ ! -f "$PCFILE" ]; then
+  echo "prefix=${PREFIX_DEPS}" > "$PCFILE"
+  echo "exec_prefix=\${prefix}" >> "$PCFILE"
+  echo "libdir=\${exec_prefix}/lib" >> "$PCFILE"
+  echo "includedir=\${prefix}/include" >> "$PCFILE"
+  echo "Name: brotli" >> "$PCFILE"
+  echo "Description: Brotli static libs (decoder + common)" >> "$PCFILE"
+  echo "Version: 1.2.0" >> "$PCFILE"
+  echo "Libs: -L\${libdir} -lbrotlidec -lbrotlicommon" >> "$PCFILE"
+  echo "Cflags: -I\${includedir}" >> "$PCFILE"
+  echo ">>> Created generated brotli.pc"
+fi
+
+# Debug output of installed brotli files
+echo ">>> Installed brotli libs:"
+ls -l "$PREFIX_DEPS/lib/"*brotli* || true
+echo ">>> Installed brotli headers:"
+ls -l "$PREFIX_DEPS/include/brotli"* || true
+echo ">>> Installed brotli pkgconfig:"
+ls -l "$PREFIX_DEPS/lib/pkgconfig/brotli.pc" || true
 
 # Ensure pkg-config can find brotli
 export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig:$PKG_CONFIG_PATH"
 echo "PKG_CONFIG_PATH after brotli install = $PKG_CONFIG_PATH"
 
-# Check that pkg-config sees brotli libraries
+# Check that pkg-config sees brotli
 echo ">>> pkg-config brotli libs:"
 pkg-config --static --libs brotli || true
+pkg-config --modversion brotli || true
 
 # 10.2 Clone HarfBuzz
 echo "=== Cloning HarfBuzz ==="
 git clone --depth=1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
 cd harfbuzz
 
-echo ">>> Patching meson.build to include brotli support"
-
+# 10.3 Patch meson.build for brotli linking
+echo ">>> Patching HarfBuzz meson.build to include brotli"
 HARFBUILD="meson.build"
 if [ ! -f "$HARFBUILD" ]; then
   echo "ERROR: HarfBuzz meson.build not found!"
   exit 1
 fi
-
-# Debug: show where we will insert
-grep -n "harfbuzz_deps += \\[freetype_dep\\]" -n "$HARFBUILD" || true
-
-# Insert brotli linking into meson.build with detailed debug
-sed -i "/harfbuzz_deps += \[freetype_dep\]/a \\
+sed -i "/harfbuzz_deps += \\[freetype_dep\\]/a \\
   # --- Brotli support added by build script ---\\
   brotli_decoder = cc.find_library('brotlidec', dirs : get_option('libdir'), required : false)\\
   brotli_common  = cc.find_library('brotlicommon', dirs : get_option('libdir'), required : false)\\
   if brotli_decoder.found() and brotli_common.found()\\
     message('Found brotli_decoder:' + brotli_decoder.full_path())\\
     message('Found brotli_common:' + brotli_common.full_path())\\
-    # Add both brotli static libs to harfbuzz link_with\\
     harfbuzz_lib = meson.get_target('harfbuzz')\\
-    message('Adding brotli libs to harfbuzz link_with ...')\\
     harfbuzz_lib.link_with += [brotli_decoder, brotli_common]\\
-  else\\
-    message('WARNING: brotli support not applied (libs not found)')\\
   endif\\
   # --- End brotli support ---" \
   "$HARFBUILD"
 
 echo ">>> HarfBuzz meson.build patched for brotli"
 
-# 10.3 Write cross file for Meson
+# 10.4 Write cross file for Meson
 MESON_CROSS="$PWD/meson_cross.ini"
 cat > "$MESON_CROSS" <<EOF
 [binaries]
