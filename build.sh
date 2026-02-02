@@ -536,27 +536,25 @@ cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
 ####################################
-# Build libtool + libltdl (cross)
+# Build libltdl ONLY (cross compile)
 ####################################
-echo "=== Building libtool + libltdl (cross compile) ==="
+echo "=== Building standalone libltdl (cross compile) ==="
 
-# Clone libtool
-git clone --depth=1 https://git.savannah.gnu.org/git/libtool.git libtool
-cd libtool
+# Pick a stable release of libtool that contains pre‑generated autotools files
+LIBTOOL_VER=2.4.6
+wget -q https://ftp.gnu.org/gnu/libtool/libtool-${LIBTOOL_VER}.tar.xz
+tar xf libtool-${LIBTOOL_VER}.tar.xz
+cd libtool-${LIBTOOL_VER}/libltdl
 
-# Prepare autotools
-# autoreconf might not be needed if configure exists, but safe to ensure
-autoreconf --install --force --verbose || true
-
-# Configure libtool for cross compile
+# Configure libltdl for cross compile
 ./configure \
   --host=aarch64-w64-mingw32 \
   --prefix="${PREFIX_DEPS}" \
-  --enable-static \
   --disable-shared \
-  --disable-dependency-tracking \
-  LT_CONFIG_LTDL_WEBDOWNLOAD=false \
+  --enable-static \
   CC="${CC}" \
+  AR="${AR}" \
+  RANLIB="${RANLIB}" \
   CFLAGS="-I${PREFIX_DEPS}/include ${CFLAGS}" \
   LDFLAGS="-L${PREFIX_DEPS}/lib ${LDFLAGS}"
 
@@ -564,22 +562,24 @@ autoreconf --install --force --verbose || true
 make -j"$(nproc)"
 make install
 
-cd ..
-echo "=== libtool + libltdl build complete ==="
-
+cd ../..
 
 ####################################
-# Build libgphoto2 (Autotools cross)
+# Build libgphoto2 (cross compile)
 ####################################
 echo "=== Building libgphoto2 (cross compile) ==="
 
+# Clone source
 git clone --depth=1 https://github.com/gphoto/libgphoto2.git libgphoto2
 cd libgphoto2
 
-# Regenerate configure
+# Regenerate configure/autotools if necessary
 autoreconf --install --force --verbose
 
-# Configure for cross compile
+# Ensure pkg-config can find libltdl first (we built it earlier)
+export PKG_CONFIG_PATH="${PREFIX_DEPS}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+
+# Call configure with cross settings
 ./configure \
   --host=aarch64-w64-mingw32 \
   --prefix="${PREFIX_DEPS}" \
@@ -589,17 +589,22 @@ autoreconf --install --force --verbose
   --without-exif \
   --disable-nls \
   CC="${CC}" \
-  CFLAGS="${CFLAGS}" \
+  CFLAGS="-I${PREFIX_DEPS}/include ${CFLAGS}" \
   CPPFLAGS="-I${PREFIX_DEPS}/include ${CPPFLAGS}" \
   LDFLAGS="-L${PREFIX_DEPS}/lib ${LDFLAGS}"
 
+# Build and install
 make -j"$(nproc)"
 make install
 
 cd ..
 
-# Create pkg-config .pc for libgphoto2
+####################################
+# Install pkg‑config files for libgphoto2
+####################################
+echo "=== Installing libgphoto2 pkg-config files ==="
 mkdir -p "${PREFIX_DEPS}/lib/pkgconfig"
+
 cat > "${PREFIX_DEPS}/lib/pkgconfig/libgphoto2.pc" <<EOF
 prefix=${PREFIX_DEPS}
 exec_prefix=\${prefix}
@@ -613,35 +618,59 @@ Libs: -L\${libdir} -lgphoto2
 Cflags: -I\${includedir}
 EOF
 
+cat > "${PREFIX_DEPS}/lib/pkgconfig/libgphoto2_port.pc" <<EOF
+prefix=${PREFIX_DEPS}
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: libgphoto2_port
+Description: gPhoto2 port support library
+Version: 2.5.32
+Libs: -L\${libdir} -lgphoto2_port
+Cflags: -I\${includedir}
+EOF
+
 echo "=== libgphoto2 pkg-config installed ==="
 
+####################################
 # Install FindGphoto2.cmake module
+####################################
+echo "=== Installing FindGphoto2.cmake module ==="
 mkdir -p "${PREFIX_DEPS}/cmake/modules"
 cat > "${PREFIX_DEPS}/cmake/modules/FindGphoto2.cmake" << 'EOF'
 include(FindPackageHandleStandardArgs)
 find_package(PkgConfig QUIET)
 
+# Try pkg-config first
 if(PKG_CONFIG_FOUND)
     pkg_check_modules(PC_GPHOTO2 libgphoto2)
 endif()
 
+# Look for include dir
 find_path(GPHOTO2_INCLUDE_DIR
     NAMES gphoto2/gphoto2.h
     HINTS ${PC_GPHOTO2_INCLUDE_DIRS}
 )
 
+# Look for libgphoto2
 find_library(GPHOTO2_LIBRARY
     NAMES gphoto2 libgphoto2
     HINTS ${PC_GPHOTO2_LIBRARY_DIRS}
 )
 
+# Set variables
 set(GPHOTO2_LIBRARIES ${GPHOTO2_LIBRARY})
-set(GPHOTO2_VERSION ${PC_GPHOTO2_VERSION})
+if(PC_GPHOTO2_FOUND)
+    set(GPHOTO2_VERSION ${PC_GPHOTO2_VERSION})
+endif()
 
+# Report results
 find_package_handle_standard_args(Gphoto2 DEFAULT_MSG
     GPHOTO2_LIBRARY GPHOTO2_INCLUDE_DIR
 )
 
+# Provide imported target for CMake
 if(Gphoto2_FOUND AND NOT TARGET Gphoto2::Gphoto2)
     add_library(Gphoto2::Gphoto2 UNKNOWN IMPORTED)
     set_target_properties(Gphoto2::Gphoto2 PROPERTIES
