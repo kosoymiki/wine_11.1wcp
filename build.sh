@@ -415,17 +415,14 @@ cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
 
-git clone --depth=1 https://github.com/libusb/libusb.git libusb
+git clone https://github.com/libusb/libusb.git
 cd libusb
-mkdir -p build && cd build
-cmake -DCMAKE_SYSTEM_NAME=Windows \
-      -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
-      -DCMAKE_INSTALL_PREFIX="$PREFIX_DEPS" \
-      -DCMAKE_C_COMPILER="$CC" \
-      -DCMAKE_CXX_COMPILER="$CXX" \
-      -DENABLE_SHARED=OFF -DENABLE_STATIC=ON ..
-cmake --build . --parallel "$(nproc)" && cmake --install .
-cd ../..
+./autogen.sh
+./configure \
+  --host=aarch64-w64-mingw32 \
+  --prefix="${PREFIX_DEPS}" \
+  --disable-shared --enable-static
+make -j"$(nproc)" && make install
 
 
 git clone --depth=1 https://gitlab.com/libtiff/libtiff.git libtiff
