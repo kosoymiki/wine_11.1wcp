@@ -418,14 +418,15 @@ cd ../..
 ####################################
 # libusb (CMake cross compile via libusb‑cmake)
 ####################################
-echo "=== Building libusb via CMake ==="
+echo "=== Building libusb via libusb-cmake ==="
 
 git clone --depth=1 https://github.com/libusb/libusb-cmake.git libusb-cmake
 cd libusb-cmake
 
+# Create build dir
 mkdir -p build && cd build
 
-# Generate using your cross toolchain
+# Run CMake with cross settings
 cmake \
   -DCMAKE_SYSTEM_NAME=Windows \
   -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
@@ -435,7 +436,6 @@ cmake \
   -DCMAKE_INSTALL_PREFIX="${PREFIX_DEPS}" \
   -DBUILD_SHARED_LIBS=OFF \
   -DENABLE_STATIC=ON \
-  -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
   -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
   -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
   ..
