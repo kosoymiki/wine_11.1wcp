@@ -368,44 +368,68 @@ cd ..
 ####################################
 # 10) harfbuzz
 ####################################
-echo "=== Building harfbuzz ==="
+echo "=== Building harfbuzz with brotli support ==="
+
+# 10.1 Download prebuilt brotli for ARM64 Windows
+echo ">>> Downloading prebuilt brotli for ARM64 Windows"
+curl -L \
+  https://dev-libs.wireshark.org/windows/packages/brotli/brotli-1.2.0-1-arm64-windows-ws.7z \
+  -o brotli-arm64.7z
+
+echo ">>> Extracting brotli"
+7z x brotli-arm64.7z -obrotli
+
+echo ">>> Installing brotli into deps/install"
+mkdir -p "$PREFIX_DEPS/lib/pkgconfig"
+cp brotli/lib/*.a "$PREFIX_DEPS/lib/"
+cp -r brotli/include/brotli "$PREFIX_DEPS/include/"
+cp brotli/lib/pkgconfig/*.pc "$PREFIX_DEPS/lib/pkgconfig/"
+
+# Ensure pkg-config can find brotli
+export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig:$PKG_CONFIG_PATH"
+echo "PKG_CONFIG_PATH after brotli install = $PKG_CONFIG_PATH"
+
+# Check that pkg-config sees brotli libraries
+echo ">>> pkg-config brotli libs:"
+pkg-config --static --libs brotli || true
+
+# 10.2 Clone HarfBuzz
+echo "=== Cloning HarfBuzz ==="
 git clone --depth=1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
 cd harfbuzz
 
-echo ">>> Setting PKG_CONFIG_PATH for brotli"
-# добавляем каталог deps/install/lib/pkgconfig
-export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig:$PKG_CONFIG_PATH"
-echo "PKG_CONFIG_PATH = $PKG_CONFIG_PATH"
+echo ">>> Patching meson.build to include brotli support"
 
-echo ">>> pkg-config brotli:"
-pkg-config --static --libs brotli || true
-
-# Проверяем, что brotli‑pkgconfig видит оба .a
-# Ожидаемый: -L... -lbrotlicommon -lbrotlidec
-
-echo ">>> Patching meson.build to include brotli link_args"
 HARFBUILD="meson.build"
-
 if [ ! -f "$HARFBUILD" ]; then
   echo "ERROR: HarfBuzz meson.build not found!"
   exit 1
 fi
 
-sed -i "/harfbuzz_deps += \[freetype_dep\]/a \\
-  # --- Brotli support ---\\
-  brotli_decoder = cc.find_library('brotlidec', dirs : get_option('libdir'), required : false)
-brotli_common  = cc.find_library('brotlicommon', dirs : get_option('libdir'), required : false)
+# Debug: show where we will insert
+grep -n "harfbuzz_deps += \\[freetype_dep\\]" -n "$HARFBUILD" || true
 
-if brotli_decoder.found() and brotli_common.found()
-  harfuzz_lib = meson.get_target('harfbuzz')
-  harfuzz_lib.link_with += [brotli_decoder, brotli_common]
-endif
+# Insert brotli linking into meson.build with detailed debug
+sed -i "/harfbuzz_deps += \[freetype_dep\]/a \\
+  # --- Brotli support added by build script ---\\
+  brotli_decoder = cc.find_library('brotlidec', dirs : get_option('libdir'), required : false)\\
+  brotli_common  = cc.find_library('brotlicommon', dirs : get_option('libdir'), required : false)\\
+  if brotli_decoder.found() and brotli_common.found()\\
+    message('Found brotli_decoder:' + brotli_decoder.full_path())\\
+    message('Found brotli_common:' + brotli_common.full_path())\\
+    # Add both brotli static libs to harfbuzz link_with\\
+    harfbuzz_lib = meson.get_target('harfbuzz')\\
+    message('Adding brotli libs to harfbuzz link_with ...')\\
+    harfbuzz_lib.link_with += [brotli_decoder, brotli_common]\\
+  else\\
+    message('WARNING: brotli support not applied (libs not found)')\\
+  endif\\
   # --- End brotli support ---" \
   "$HARFBUILD"
 
-echo ">>> HarfBuzz meson.build patched for brotli link_args"
+echo ">>> HarfBuzz meson.build patched for brotli"
 
-# создаём файл cross‑конфигурации для meson
+# 10.3 Write cross file for Meson
 MESON_CROSS="$PWD/meson_cross.ini"
 cat > "$MESON_CROSS" <<EOF
 [binaries]
@@ -439,8 +463,8 @@ ninja -C build -j"$(nproc)" 2>&1 | tee ninja-harfbuzz-build.log
 echo "=== INSTALLING HARFBUZZ ==="
 ninja -C build -j"$(nproc)" install
 
-# возвращаемся
 cd ..
+echo ">>> HarfBuzz build with brotli support complete"
 
 ####################################
 # 13+) Remaining deps
