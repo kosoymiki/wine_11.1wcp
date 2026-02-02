@@ -416,34 +416,35 @@ cd ../..
 
 
 ####################################
-# libusb (Autotools cross‑compile)
+# libusb (CMake cross compile via libusb‑cmake)
 ####################################
-echo "=== Building libusb (cross compile) ==="
+echo "=== Building libusb via CMake ==="
 
-git clone --depth=1 https://github.com/libusb/libusb.git libusb
-cd libusb
+git clone --depth=1 https://github.com/libusb/libusb-cmake.git libusb-cmake
+cd libusb-cmake
 
-# Generate configure script for autotools
-./autogen.sh
+mkdir -p build && cd build
 
-# Configure for cross‑compilation
-# — host specifies the target architecture
-# — we suppress running test binaries by passing host only
-./configure \
-  --host=aarch64-w64-mingw32 \
-  --prefix="${PREFIX_DEPS}" \
-  --disable-shared \
-  --enable-static \
-  CC="${CC}" \
-  CFLAGS="${CFLAGS}" \
-  LDFLAGS="${LDFLAGS}"
+# Generate using your cross toolchain
+cmake \
+  -DCMAKE_SYSTEM_NAME=Windows \
+  -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+  -DCMAKE_C_COMPILER="${CC}" \
+  -DCMAKE_CXX_COMPILER="${CXX}" \
+  -DCMAKE_FIND_ROOT_PATH="${PREFIX_DEPS}" \
+  -DCMAKE_INSTALL_PREFIX="${PREFIX_DEPS}" \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DENABLE_STATIC=ON \
+  -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+  -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+  -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+  ..
 
 # Build and install
-make -j"$(nproc)"
-make install
+cmake --build . --parallel "$(nproc)" --target install
 
-cd ..
-echo "=== libusb build complete ==="
+cd ../..
+echo "=== libusb CMake build complete ==="
 
 git clone --depth=1 https://gitlab.com/libtiff/libtiff.git libtiff
 cd libtiff
