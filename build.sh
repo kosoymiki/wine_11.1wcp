@@ -393,13 +393,13 @@ fi
 
 sed -i "/harfbuzz_deps += \[freetype_dep\]/a \\
   # --- Brotli support ---\\
-  brotli_decoder = cc.find_library('brotlidec', dirs: get_option('libdir'), required: false)\\
-  brotli_common = cc.find_library('brotlicommon', dirs: get_option('libdir'), required: false)\\
-  if brotli_decoder.found() and brotli_common.found()\\
-    # explicitly add both brotli static libs to linker arguments\\
-    harfbuzz_lib = meson.get_target('harfbuzz')\\
-    harfbuzz_lib.set_link_args([brotli_decoder, brotli_common])\\
-  endif\\
+  brotli_decoder = cc.find_library('brotlidec', dirs : get_option('libdir'), required : false)
+brotli_common  = cc.find_library('brotlicommon', dirs : get_option('libdir'), required : false)
+
+if brotli_decoder.found() and brotli_common.found()
+  harfuzz_lib = meson.get_target('harfbuzz')
+  harfuzz_lib.link_with += [brotli_decoder, brotli_common]
+endif
   # --- End brotli support ---" \
   "$HARFBUILD"
 
