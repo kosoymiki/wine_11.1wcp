@@ -420,14 +420,15 @@ cd ../..
 ####################################
 echo "=== Building libusb (cross compile) ==="
 
-# Clone libusb sources
 git clone --depth=1 https://github.com/libusb/libusb.git libusb
 cd libusb
 
-# Prepare Autotools build system
+# Generate configure script for autotools
 ./autogen.sh
 
-# Configure for cross compilation
+# Configure for cross‑compilation
+# — host specifies the target architecture
+# — we suppress running test binaries by passing host only
 ./configure \
   --host=aarch64-w64-mingw32 \
   --prefix="${PREFIX_DEPS}" \
@@ -437,7 +438,7 @@ cd libusb
   CFLAGS="${CFLAGS}" \
   LDFLAGS="${LDFLAGS}"
 
-# Compile and install
+# Build and install
 make -j"$(nproc)"
 make install
 
