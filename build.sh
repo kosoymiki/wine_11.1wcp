@@ -394,6 +394,37 @@ echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
 echo ">>> pkg-config brotli:"
 pkg-config --static --libs brotli || true
 
+echo ">>> Applying deep HarfBuzz Brotli patch"
+
+cat > harfbuzz-brotli.patch << 'EOF'
+diff --git a/src/meson.build b/src/meson.build
+index 0000000000..0000000000 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@
+   harfbuzz_deps += [freetype_dep]
++  # --------------------------------------------------------------------
++  # Brotli static decoding support (needed for WOFF2 support)
++  # Find both the decoder and the common part
++  brotli_decoder = cc.find_library('brotlidec',
++                                   dirs: get_option('libdir'),
++                                   required: false)
++  brotli_common  = cc.find_library('brotlicommon',
++                                   dirs: get_option('libdir'),
++                                   required: false)
++  if brotli_decoder.found() and brotli_common.found()
++    # Add both libraries; common must be linked whole so symbols are not dropped
++    harfbuzz_deps += [
++      declare_dependency(link_whole: brotli_common),
++      brotli_decoder,
++    ]
++  endif
++  # End Brotli support
+EOF
+
+git apply harfbuzz-brotli.patch || { echo "ERROR: failed to apply brotli patch"; exit 1; }
+echo ">>> Applied HarfBuzz Brotli patch"
+
 # Генерируем файл meson_cross.ini
 MESON_CROSS="$PWD/meson_cross.ini"
 cat > "$MESON_CROSS" <<EOF
