@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+# ✨ Добавляем дефолты — предотвращаем unbound variable
+: "${CFLAGS:=}"
+: "${CXXFLAGS:=}"
+: "${LDFLAGS:=}"
+: "${PKG_CONFIG_PATH:=}"
+: "${PKG_CONFIG_LIBDIR:=}"
+: "${PKG_CONFIG_SYSROOT_DIR:=}"
+
 #####################################
 # Ensure PREFIX_DEPS is set
 #####################################
