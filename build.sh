@@ -591,7 +591,10 @@ export PKG_CONFIG_PATH="${PREFIX_DEPS}/lib/pkgconfig:${PKG_CONFIG_PATH}"
   CC="${CC}" \
   CFLAGS="-I${PREFIX_DEPS}/include ${CFLAGS}" \
   CPPFLAGS="-I${PREFIX_DEPS}/include ${CPPFLAGS}" \
-  LDFLAGS="-L${PREFIX_DEPS}/lib ${LDFLAGS}"
+  LDFLAGS="-L${PREFIX_DEPS}/lib ${LDFLAGS}" \
+  LTDLINCL="-I${PREFIX_DEPS}/include" \
+  LIBLTDL="-L${PREFIX_DEPS}/lib -lltdl"
+  
 
 # Build and install
 make -j"$(nproc)"
