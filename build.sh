@@ -536,33 +536,32 @@ cmake --build . --parallel "$(nproc)" && cmake --install .
 cd ../..
 
 ####################################
-# Build libltdl ONLY (cross compile)
+# Build libtool & libltdl fully
 ####################################
-echo "=== Building standalone libltdl (cross compile) ==="
+echo "=== Building full libtool + libltdl (cross compile) ==="
 
-# Pick a stable release of libtool that contains pre‑generated autotools files
-LIBTOOL_VER=2.4.6
-wget -q https://ftp.gnu.org/gnu/libtool/libtool-${LIBTOOL_VER}.tar.xz
-tar xf libtool-${LIBTOOL_VER}.tar.xz
-cd libtool-${LIBTOOL_VER}/libltdl
+git clone --depth=1 https://git.savannah.gnu.org/git/libtool.git libtool-cross
+cd libtool-cross
 
-# Configure libltdl for cross compile
+# important: run autoreconf because git repo uses submodules
+autoreconf --install --force --verbose
+
 ./configure \
-  --host=aarch64-w64-mingw32 \
-  --prefix="${PREFIX_DEPS}" \
-  --disable-shared \
-  --enable-static \
-  CC="${CC}" \
-  AR="${AR}" \
-  RANLIB="${RANLIB}" \
-  CFLAGS="-I${PREFIX_DEPS}/include ${CFLAGS}" \
-  LDFLAGS="-L${PREFIX_DEPS}/lib ${LDFLAGS}"
+    --host=aarch64-w64-mingw32 \
+    --prefix="${PREFIX_DEPS}" \
+    --enable-static \
+    --disable-shared \
+    --disable-dependency-tracking \
+    CC="${CC}" \
+    CFLAGS="-I${PREFIX_DEPS}/include ${CFLAGS}" \
+    LDFLAGS="-L${PREFIX_DEPS}/lib ${LDFLAGS}" \
+    LT_CONFIG_LTDL_WEBDOWNLOAD=false
 
-# Build and install
 make -j"$(nproc)"
 make install
 
-cd ../..
+cd ..
+echo "=== full libtool & libltdl installed ==="
 
 ####################################
 # Build libgphoto2 (cross compile)
