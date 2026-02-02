@@ -40,6 +40,11 @@ jobs:
       run: |
         ./build.sh
 
+    - name: Confirm freetype pkgconfig
+      run: |
+    echo "PKG_CONFIG_PATH=$PWD/deps/install/lib/pkgconfig"
+    ls deps/install/lib/pkgconfig
+
     - name: Run wine build
       run: |
         ./build-wine.sh
