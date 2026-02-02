@@ -388,6 +388,12 @@ grep -n "png_dep" -n src/meson.build || true
 grep -n "zlib_dep" -n src/meson.build || true
 echo "=== END SEARCH ==="
 
+echo ">>> Setting PKG_CONFIG_PATH for brotli"
+export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig:$PKG_CONFIG_PATH"
+echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+echo ">>> pkg-config brotli:"
+pkg-config --static --libs brotli || true
+
 # Генерируем файл meson_cross.ini
 MESON_CROSS="$PWD/meson_cross.ini"
 cat > "$MESON_CROSS" <<EOF
