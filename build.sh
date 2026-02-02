@@ -413,7 +413,7 @@ echo ">>> HarfBuzz build with brotli support complete"
 # 13+) Remaining deps
 ####################################
 # SDL2
-git clone --depth=1 https://github.com/libsdl-org/SDL.git SDL2
+git clone --depth=1 --branch SDL2 https://github.com/libsdl-org/SDL.git SDL2
 cd SDL2
 mkdir -p build && cd build
 cmake -DCMAKE_SYSTEM_NAME=Windows \
