@@ -579,14 +579,40 @@ cd libgphoto2
 # Regenerate autotools scripts (needed in git)
 autoreconf --install --force --verbose
 
-# Ensure pkg-config can find previously built libltdl
+####################################
+# Apply cross‑compile patches
+####################################
+echo ">>> Patching libgphoto2 for cross compile"
+
+# 1) Fix missing MAX/MIN macros in camlibs (QuickTake and other legacy codecs)
+find . -type f -name "*.h" | grep -E "quicktake1x0.h|qtkt|qtkn" | while read -r file; do
+  echo "Patching MAX/MIN in $file"
+  sed -i '1i \
+#ifndef MAX\n#define MAX(a,b) ((a) > (b) ? (a) : (b))\n#endif\n#ifndef MIN\n#define MIN(a,b) ((a) < (b) ? (a) : (b))\n#endif\n' "$file"
+done
+
+# 2) Optionally skip problematic camera libs if still failing
+#    (Uncomment to disable these modules completely)
+# PATCH_SKIP="camlibs/quicktake1x0 camlibs/imagetypeX"
+# for mod in $PATCH_SKIP; do
+#   echo "Disabling module: $mod"
+#   sed -i "s/ SUBDIRS =/ SUBDIRS = !${mod}/" Makefile.am
+# done
+
+# 3) Silence warnings about SIZE_MAX formatting & other printf format issues
+#    by adding appropriate macros.
+grep -q "SIZE_MAX" ./configure.ac && \
+  echo 'AC_DEFINE([_GNU_SOURCE],[1],[Enable GNU extensions for SIZE_MAX])' >> configure.ac
+
+echo ">>> libgphoto2 patches applied"
+
+####################################
+# Configure with correct cross settings
+####################################
+# Ensure pkg-config can find libltdl and other deps
 export PKG_CONFIG_PATH="${PREFIX_DEPS}/lib/pkgconfig:${PKG_CONFIG_PATH}"
 
-# Explicitly give libltdl include & lib paths
-export LTDLINCL="-I${PREFIX_DEPS}/include"
-export LIBLTDL="-L${PREFIX_DEPS}/lib -lltdl"
-
-# Configure with correct cross settings
+# Configure
 ./configure \
   --host=aarch64-w64-mingw32 \
   --prefix="${PREFIX_DEPS}" \
@@ -598,15 +624,22 @@ export LIBLTDL="-L${PREFIX_DEPS}/lib -lltdl"
   CC="${CC}" \
   CFLAGS="-I${PREFIX_DEPS}/include ${CFLAGS}" \
   CPPFLAGS="-I${PREFIX_DEPS}/include ${CPPFLAGS}" \
-  LDFLAGS="-L${PREFIX_DEPS}/lib ${LDFLAGS}" \
-  LTDLINCL="${LTDLINCL}" \
-  LIBLTDL="${LIBLTDL}"
+  LDFLAGS="-L${PREFIX_DEPS}/lib ${LDFLAGS}"
 
-# Build & install
-make -j"$(nproc)"
+####################################
+# Build & Install
+####################################
+echo ">>> Building libgphoto2"
+make -j"$(nproc)" || {
+  echo "libgphoto2 build failed! Inspect logs…"
+  exit 1
+}
+
+echo ">>> Installing libgphoto2"
 make install
 
 cd ..
+echo "=== libgphoto2 build complete ==="
 
 ####################################
 # Install pkg‑config files for libgphoto2
