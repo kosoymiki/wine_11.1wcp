@@ -37,7 +37,7 @@ cd deps/build
 ####################################
 # Build cross pkgconf (pkg-config for target)
 ####################################
-echo ">>> Build cross pkgconf"
+echo ">>> Building pkgconf (cross)"
 wget -q https://distfiles.dereferenced.org/pkgconf/pkgconf-2.5.1.tar.xz
 tar xf pkgconf-2.5.1.tar.xz
 cd pkgconf-2.5.1
@@ -46,19 +46,23 @@ cd pkgconf-2.5.1
   --host=aarch64-w64-mingw32 \
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static
+
 make -j"$(nproc)" && make install
 cd ..
 
-# Create target pkg-config
-(
-  cd "$PREFIX_DEPS/bin"
-  ln -sf pkgconf aarch64-w64-mingw32-pkg-config
-  ln -sf pkgconf pkg-config
-)
+echo ">>> Creating cross pkg-config wrappers"
+mkdir -p "$PREFIX_DEPS/bin"
 
-export PATH="$PREFIX_DEPS/bin:$PATH"
-export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig${PKG_CONFIG_PATH+:}${PKG_CONFIG_PATH:-}"
-export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
+cd "$PREFIX_DEPS/bin"
+ln -sf pkgconf aarch64-w64-mingw32-pkg-config
+ln -sf aarch64-w64-mingw32-pkg-config pkg-config
+
+echo ">>> Cross pkg-config wrappers installed:"
+ls -l "$PREFIX_DEPS/bin/pkgconf" \
+      "$PREFIX_DEPS/bin/aarch64-w64-mingw32-pkg-config" \
+      "$PREFIX_DEPS/bin/pkg-config"
+
+cd - > /dev/null
 
 ####################################
 # Compiler / toolchain
@@ -396,7 +400,7 @@ echo "=== Building HarfBuzz with brotli support ==="
 git clone --depth=1 https://github.com/harfbuzz/harfbuzz.git harfbuzz
 cd harfbuzz
 
-# Add brotli static linking
+# Add brotli static libs to meson.build
 sed -i "/harfbuzz_deps += \\[freetype_dep\\]/a \\
 # --- Brotli static libs ---\\
 brotli_libs = [\\
@@ -406,11 +410,9 @@ brotli_libs = [\\
 ]\\
 harfbuzz_lib = meson.get_target('harfbuzz')\\
 harfbuzz_lib.link_with += brotli_libs\\
-# --- End brotli ---" \
-  meson.build
+# --- End brotli ---" meson.build
 
-# ===== Create Meson cross file =====
-echo ">>> Create Meson cross file for HarfBuzz"
+# Create Meson cross file
 MESON_CROSS="$PWD/meson_cross.ini"
 cat > "$MESON_CROSS" <<EOF
 [binaries]
@@ -430,19 +432,20 @@ root_prefix = '$PREFIX_DEPS'
 pkg_config_path = '$PREFIX_DEPS/lib/pkgconfig'
 EOF
 
-# ===== Debug: verify cross pkg-config before Meson =====
-echo ">>> Cross pkg-config freetype2 version check"
+# Debug cross pkg-config
+echo ">>> Cross pkg-config test for HarfBuzz"
 "$PREFIX_DEPS/bin/aarch64-w64-mingw32-pkg-config" --modversion freetype2 || true
 "$PREFIX_DEPS/bin/aarch64-w64-mingw32-pkg-config" --cflags freetype2 || true
 "$PREFIX_DEPS/bin/aarch64-w64-mingw32-pkg-config" --libs freetype2 || true
 
-# ===== Run Meson =====
-meson setup build --cross-file="$MESON_CROSS" \
+# Run Meson
+meson setup build \
+  --cross-file="$MESON_CROSS" \
   --prefix="$PREFIX_DEPS" \
   -Dfreetype=enabled -Dtests=disabled \
   | tee meson-harfbuzz-config.log
 
-# ===== Build & install =====
+# Build + Install
 ninja -C build -j"$(nproc)" | tee ninja-harfbuzz-build.log
 ninja -C build install
 
