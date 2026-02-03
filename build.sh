@@ -314,17 +314,11 @@ wget -q https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.
 tar xf fontconfig-2.16.0.tar.xz
 cd fontconfig-2.16.0
 
-# Apply patch to accept our freetype2 version
-cat > freetype2-version.patch << 'EOF'
-*** Begin Patch
-*** Update File: configure.ac
-@@
--  PKG_CHECK_MODULES([FREETYPE2], [freetype2 >= 21.0.15],
-+  PKG_CHECK_MODULES([FREETYPE2], [freetype2 >= 2.14.1],
-*** End Patch
-EOF
+# Патчим configure напрямую, чтобы freetype2 >= 2.14.1
+sed -i 's/freetype2 >= 21.0.15/freetype2 >= 2.14.1/' configure
 
-patch -p1 < freetype-version-fix.patch
+# Отладочный вывод, чтобы убедиться, что замена прошла
+grep -n "freetype2 >=" configure || true
 
 # Provide include paths so freetype and expat can be found
 export CPPFLAGS="-I$PREFIX_DEPS/include -I$PREFIX_DEPS/include/freetype2"
