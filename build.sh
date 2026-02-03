@@ -218,15 +218,16 @@ if [ ! -f "$PREFIX_DEPS/lib/libfreetype.a" ]; then
   exit 1
 fi
 
-cat > "$PREFIX_DEPS/lib/pkgconfig/freetype2.pc" << EOF
+# Rewrite pkg-config so Wine configure sees a supported version
+cat > "$PREFIX_DEPS/lib/pkgconfig/freetype2.pc" <<EOF
 prefix=${PREFIX_DEPS}
 exec_prefix=\${prefix}
 libdir=\${exec_prefix}/lib
 includedir=\${prefix}/include/freetype2
 
 Name: freetype2
-Description: FreeType 2 library
-Version: 2.14.1
+Description: FreeType 2 font rendering library
+Version: 21.0.15
 Libs: -L\${libdir} -lfreetype
 Cflags: -I\${includedir}
 EOF
@@ -237,7 +238,7 @@ if [ ! -f "$PREFIX_DEPS/lib/pkgconfig/freetype2.pc" ]; then
   exit 1
 fi
 
-export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig${PKG_CONFIG_PATH+:}${PKG_CONFIG_PATH:-}"
+export PKG_CONFIG_PATH="$PREFIX_DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export PKG_CONFIG_LIBDIR="$PREFIX_DEPS/lib/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 
