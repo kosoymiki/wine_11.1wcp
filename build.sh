@@ -211,9 +211,22 @@ echo ">>> brotli static build completed."
 ####################################
 echo ">>> Building freetype2 (cross target)"
 
-# Download official source
-wget -q https://download.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.gz -O freetype-2.14.1.tar.gz
-tar xf freetype-2.14.1.tar.gz
+# Download correct source archive (.tar.xz)
+wget -q https://download-mirror.savannah.gnu.org/releases/freetype/freetype-2.14.1.tar.xz -O freetype-2.14.1.tar.xz
+
+# Fallback if mirror down — try SourceForge
+if [ $? -ne 0 ] || [ ! -s freetype-2.14.1.tar.xz ]; then
+    echo ">>> Mirror failed, trying SourceForge"
+    wget -q https://downloads.sourceforge.net/freetype/freetype-2.14.1.tar.xz -O freetype-2.14.1.tar.xz
+fi
+
+# Verify download
+if [ ! -s freetype-2.14.1.tar.xz ]; then
+    echo "Error: failed to download freetype2 source"
+    exit 1
+fi
+
+tar xf freetype-2.14.1.tar.xz
 cd freetype-2.14.1
 
 # Configure for cross compilation (mingw target)
@@ -228,13 +241,13 @@ cd freetype-2.14.1
 make -j"$(nproc)"
 make install
 
-# Verify that static library was built
+# Verify static library built
 if [ ! -f "$PREFIX_DEPS/lib/libfreetype.a" ]; then
   echo "Error: libfreetype.a missing!"
   exit 1
 fi
 
-# Rewrite pkg-config so Wine configure sees a supported version
+# Rewrite pkg‑config so Wine configure sees supported version
 cat > "$PREFIX_DEPS/lib/pkgconfig/freetype2.pc" <<EOF
 prefix=${PREFIX_DEPS}
 exec_prefix=\${prefix}
@@ -248,7 +261,7 @@ Libs: -L\${libdir} -lfreetype
 Cflags: -I\${includedir}
 EOF
 
-# Ensure pkg‑config sees freetype2 .pc
+# Ensure .pc exists
 if [ ! -f "$PREFIX_DEPS/lib/pkgconfig/freetype2.pc" ]; then
   echo "Error: freetype2.pc missing"
   exit 1
