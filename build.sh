@@ -227,7 +227,7 @@ includedir=\${prefix}/include/freetype2
 
 Name: freetype2
 Description: FreeType 2 font rendering library
-Version: 21.0.15
+Version: 2.14.1
 Libs: -L\${libdir} -lfreetype
 Cflags: -I\${includedir}
 EOF
@@ -313,6 +313,19 @@ echo ">>> Build fontconfig 2.16.0"
 wget -q https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.0.tar.xz
 tar xf fontconfig-2.16.0.tar.xz
 cd fontconfig-2.16.0
+
+# Apply patch to accept our freetype2 version
+cat > freetype-version-fix.patch << 'EOF'
+*** Begin Patch
+*** Update File: configure.ac
+@@
+-  PKG_CHECK_MODULES([FREETYPE2], [freetype2 >= 21.0.15],
++  PKG_CHECK_MODULES([FREETYPE2], [freetype2 >= 2.14.1],
+     [have_freetype2=yes], [have_freetype2=no])
+*** End Patch
+EOF
+
+patch -p1 < freetype-version-fix.patch
 
 # Provide include paths so freetype and expat can be found
 export CPPFLAGS="-I$PREFIX_DEPS/include -I$PREFIX_DEPS/include/freetype2"
