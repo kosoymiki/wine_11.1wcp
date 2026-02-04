@@ -212,16 +212,20 @@ Cflags: -I\${includedir}
 EOF
 
 ####################################
-# 7) libxml2
+# libxml2 (cross build)
 ####################################
-echo "=== Building libxml2 ==="
+echo ">>> Building libxml2 (cross target)"
 wget -q https://download.gnome.org/sources/libxml2/2.9/libxml2-2.9.14.tar.xz -O libxml2-2.9.14.tar.xz
 tar xf libxml2-2.9.14.tar.xz
 cd libxml2-2.9.14
+
+# Disable LZMA support to avoid missing lzma.h during cross compile
 ./configure \
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static \
+  --without-python \
+  --without-lzma \
   --with-sax1 \
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
@@ -253,54 +257,47 @@ export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 # Build cross pkgconf (pkg-config for target)
 ####################################
 echo ">>> Building pkgconf (cross)"
-
-# Download and extract
 wget -q https://distfiles.ariadne.space/pkgconf/pkgconf-2.5.1.tar.xz
 tar xf pkgconf-2.5.1.tar.xz
 cd pkgconf-2.5.1
 
-# Apply patch to avoid __declspec(dllimport) in static builds
+# Patch to disable dllimport so static linking works
 cat > pkgconf-static-fix.patch << 'EOF'
+*** Begin Patch
 *** Update File: libpkgconf/libpkgconf-api.h
 @@
 -#  define PKGCONF_API __declspec(dllimport)
 +#  define PKGCONF_API
 
+*** End Patch
+EOF
+
+cat >> pkgconf-static-fix.patch << 'EOF'
+*** Begin Patch
 *** Update File: libpkgconf/libpkgconf.h
 @@
 -# define PKGCONF_API __declspec(dllimport)
 +# define PKGCONF_API
+
+*** End Patch
 EOF
 
 patch -p1 < pkgconf-static-fix.patch
 
-# Configure for cross static build
 ./configure \
-  --host=aarch64-w64-mingw32 \
+  --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
-  --disable-shared \
-  --enable-static \
+  --disable-shared --enable-static \
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
-
-# Build and install
-make -j"$(nproc)"
-make install
+make -j"$(nproc)" && make install
 cd ..
 
-# Create wrappers
 echo ">>> Creating cross pkg-config wrappers"
 mkdir -p "$PREFIX_DEPS/bin"
 cd "$PREFIX_DEPS/bin"
-
 ln -sf pkgconf aarch64-w64-mingw32-pkg-config
 ln -sf aarch64-w64-mingw32-pkg-config pkg-config
-
-echo ">>> Cross pkg-config wrappers installed:"
-ls -l "$PREFIX_DEPS/bin/pkgconf" \
-      "$PREFIX_DEPS/bin/aarch64-w64-mingw32-pkg-config" \
-      "$PREFIX_DEPS/bin/pkg-config"
-
 cd - > /dev/null
 
 ####################################
