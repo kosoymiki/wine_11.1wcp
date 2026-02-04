@@ -254,21 +254,41 @@ export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 ####################################
 echo ">>> Building pkgconf (cross)"
 
-# Download pkgconf 2.5.1 from reliable mirror
+# Download and extract
 wget -q https://distfiles.ariadne.space/pkgconf/pkgconf-2.5.1.tar.xz
 tar xf pkgconf-2.5.1.tar.xz
 cd pkgconf-2.5.1
 
+# Apply patch to avoid __declspec(dllimport) in static builds
+cat > pkgconf-static-fix.patch << 'EOF'
+*** Update File: libpkgconf/libpkgconf-api.h
+@@
+-#  define PKGCONF_API __declspec(dllimport)
++#  define PKGCONF_API
+
+*** Update File: libpkgconf/libpkgconf.h
+@@
+-# define PKGCONF_API __declspec(dllimport)
++# define PKGCONF_API
+EOF
+
+patch -p1 < pkgconf-static-fix.patch
+
+# Configure for cross static build
 ./configure \
   --host=aarch64-w64-mingw32 \
   --prefix="$PREFIX_DEPS" \
   --disable-shared \
-  --enable-static
+  --enable-static \
+  CPPFLAGS="-I$PREFIX_DEPS/include" \
+  LDFLAGS="-L$PREFIX_DEPS/lib"
 
+# Build and install
 make -j"$(nproc)"
 make install
 cd ..
 
+# Create wrappers
 echo ">>> Creating cross pkg-config wrappers"
 mkdir -p "$PREFIX_DEPS/bin"
 cd "$PREFIX_DEPS/bin"
