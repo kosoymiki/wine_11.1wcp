@@ -254,54 +254,55 @@ export PKG_CONFIG_LIBDIR="$PREFIX_DEPS/lib/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR="$PREFIX_DEPS"
 
 ####################################
-# Build cross pkgconf (pkg-config for target)
+# Build cross pkgconf (pkg-config replacement)
 ####################################
 echo ">>> Building pkgconf (cross)"
-wget -q https://distfiles.ariadne.space/pkgconf/pkgconf-2.5.1.tar.xz
+
+wget -q https://distfiles.ariadne.space/pkgconf/pkgconf-2.5.1.tar.xz -O pkgconf-2.5.1.tar.xz
 tar xf pkgconf-2.5.1.tar.xz
 cd pkgconf-2.5.1
 
-# Create patch that neutralizes dllimport for static build
-cat > pkgconf-cross-static.patch << 'EOF'
-*** Begin Patch
-*** Update File: libpkgconf/libpkgconf-api.h
-@@
--#  define PKGCONF_API __declspec(dllimport)
-+#  define PKGCONF_API
-
-*** End Patch
-EOF
-
-cat >> pkgconf-cross-static.patch << 'EOF'
-*** Begin Patch
-*** Update File: libpkgconf/libpkgconf.h
-@@
--# define PKGCONF_API __declspec(dllimport)
-+# define PKGCONF_API
-
-*** End Patch
-EOF
-
-# Apply the patch cleanly
-patch -p1 < pkgconf-cross-static.patch
-
-# Configure for cross compile
+# Build for target (cross)
 ./configure \
-  --host="$TOOLCHAIN" \
+  --host="${TOOLCHAIN}" \
   --prefix="$PREFIX_DEPS" \
-  --disable-shared --enable-static \
-  CPPFLAGS="-I$PREFIX_DEPS/include" \
-  LDFLAGS="-L$PREFIX_DEPS/lib"
+  --disable-shared \
+  --enable-static
 
-make -j"$(nproc)" && make install
+make -j"$(nproc)"
+make install
+
+cd ..
+
+echo ">>> Building pkgconf (host)"
+
+wget -q https://distfiles.ariadne.space/pkgconf/pkgconf-2.5.1.tar.xz -O pkgconf-2.5.1-host.tar.xz
+tar xf pkgconf-2.5.1-host.tar.xz
+cd pkgconf-2.5.1
+
+# Build for *host* so pkgconf binary exists
+./configure \
+  --prefix="$PREFIX_DEPS_HOST" \
+  --disable-shared \
+  --enable-static
+
+make -j"$(nproc)"
+make install
+
 cd ..
 
 echo ">>> Creating cross pkg-config wrappers"
+
 mkdir -p "$PREFIX_DEPS/bin"
-cd "$PREFIX_DEPS/bin"
-ln -sf pkgconf aarch64-w64-mingw32-pkg-config
-ln -sf aarch64-w64-mingw32-pkg-config pkg-config
-cd - > /dev/null
+
+# Cross pkg-config -> using target pkgconf
+ln -sf "$PREFIX_DEPS/bin/pkgconf" "$PREFIX_DEPS/bin/${TARGET_TRIPLET}-pkg-config"
+ln -sf "$PREFIX_DEPS/bin/${TARGET_TRIPLET}-pkg-config" "$PREFIX_DEPS/bin/pkg-config"
+
+echo ">>> pkgconf (cross) installed to $PREFIX_DEPS/bin:"
+ls -l "$PREFIX_DEPS/bin/pkgconf" \
+      "$PREFIX_DEPS/bin/${TARGET_TRIPLET}-pkg-config" \
+      "$PREFIX_DEPS/bin/pkg-config"
 
 ####################################
 # Build fontconfig 2.16.0
