@@ -261,8 +261,8 @@ wget -q https://distfiles.ariadne.space/pkgconf/pkgconf-2.5.1.tar.xz
 tar xf pkgconf-2.5.1.tar.xz
 cd pkgconf-2.5.1
 
-# Patch to disable dllimport so static linking works
-cat > pkgconf-static-fix.patch << 'EOF'
+# Create patch that neutralizes dllimport for static build
+cat > pkgconf-cross-static.patch << 'EOF'
 *** Begin Patch
 *** Update File: libpkgconf/libpkgconf-api.h
 @@
@@ -272,7 +272,7 @@ cat > pkgconf-static-fix.patch << 'EOF'
 *** End Patch
 EOF
 
-cat >> pkgconf-static-fix.patch << 'EOF'
+cat >> pkgconf-cross-static.patch << 'EOF'
 *** Begin Patch
 *** Update File: libpkgconf/libpkgconf.h
 @@
@@ -282,14 +282,17 @@ cat >> pkgconf-static-fix.patch << 'EOF'
 *** End Patch
 EOF
 
-patch -p1 < pkgconf-static-fix.patch
+# Apply the patch cleanly
+patch -p1 < pkgconf-cross-static.patch
 
+# Configure for cross compile
 ./configure \
   --host="$TOOLCHAIN" \
   --prefix="$PREFIX_DEPS" \
   --disable-shared --enable-static \
   CPPFLAGS="-I$PREFIX_DEPS/include" \
   LDFLAGS="-L$PREFIX_DEPS/lib"
+
 make -j"$(nproc)" && make install
 cd ..
 
